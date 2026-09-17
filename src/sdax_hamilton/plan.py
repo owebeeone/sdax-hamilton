@@ -85,13 +85,42 @@ class PreparedPlan:
         runner = self._processor.open(ctx)
         primary: BaseException | None = None
         secondary: list[BaseException] = []
+        forward = asyncio.create_task(runner.run_next(), name="sdax-hamilton-forward")
         try:
-            await runner.run_next()
-            if not runner.has_failures() and not ctx.call_cancellations:
+            # Keep SDAX's TaskGroup bookkeeping off the caller task. On Python
+            # 3.11/3.12 a simultaneous child failure and caller cancellation can
+            # otherwise consume the cancellation while reporting only the failure.
+            try:
+                await asyncio.shield(forward)
+            except BaseException as exc:
+                primary = exc
+                if isinstance(exc, asyncio.CancelledError) and not forward.done():
+                    forward.cancel()
+            # Cancel forward only once: repeated cancellation must not interrupt
+            # callbacks while their first cancellation is already being drained.
+            while not forward.done():
+                try:
+                    await asyncio.shield(forward)
+                except asyncio.CancelledError as exc:
+                    if not isinstance(primary, asyncio.CancelledError):
+                        if primary is not None:
+                            secondary.append(primary)
+                        primary = exc
+                except BaseException:
+                    break
+            try:
+                forward.result()
+            except BaseException as exc:
+                if primary is None:
+                    primary = exc
+                elif exc is not primary and not isinstance(exc, asyncio.CancelledError):
+                    secondary.append(exc)
+            if primary is None and not runner.has_failures() and not ctx.call_cancellations:
                 yield {name: ctx.values[name] for name in self.outputs}
         except BaseException as exc:
             primary = exc
         finally:
+            forward_errors = runner.failures()
             # This one owned drain task is always joined. All lifecycle ordering
             # remains inside SDAX; shield only protects cleanup from the caller.
             drain = asyncio.create_task(runner.aclose(), name="sdax-hamilton-shutdown")
@@ -113,7 +142,7 @@ class PreparedPlan:
             # Sibling/timeout cancellation is expected when another failure already
             # explains termination. Preserve spontaneous forward cancellation when
             # it would otherwise be swallowed as a successful TaskGroup outcome.
-            if primary is None and not core_errors:
+            if primary is None and not forward_errors:
                 secondary.extend(ctx.call_cancellations.values())
             secondary.extend(core_errors)
             secondary.extend(ctx.cleanup_faults.values())

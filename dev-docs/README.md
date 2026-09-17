@@ -7,6 +7,8 @@ Created: 18 September 2026.
 | [Implementation status](Implementation-Status.md) | Current package scope, completed validation and remaining release gates. |
 | [Current API](../docs/API.md) | Implemented alpha API and lifecycle contracts. |
 | [Compatibility](../docs/Compatibility.md) | Exact admitted declarations, type checks and limitations. |
+| [Release review 0.1.0](release-review-0.1.0.md) | Independent implementation review, concrete findings and regression coverage. |
+| [Releasing](../docs/Releasing.md) | Artifact qualification and PyPI trusted publishing procedure. |
 | [API design](API-Design.md) | Architecture, proposed declarations, execution and ownership semantics, supported subset, and unresolved contracts. |
 | [Implementation plan](Implementation-Plan.md) | Ordered milestones, acceptance checks, compatibility work, evidence handling, and release gates. |
 | [Adversarial review A6](api-design-review-A6.md) | Prioritized design findings, concrete failure scenarios, source evidence, and acceptance gates. |

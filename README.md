@@ -8,17 +8,20 @@ Import the real supported Hamilton decorators, then add `execution` policies and
 reusable SDAX plan. Each invocation gets its own values and acquisition records.
 SDAX owns scheduling, retries, timeouts and reverse dependency shutdown.
 
-**Status:** initial alpha implementation, version `0.1.0a1`. The API is not frozen.
-See the [implementation status](dev-docs/Implementation-Status.md) for validation
-and the [compatibility limits](docs/Compatibility.md) before adopting it.
+**Status:** experimental release `0.1.0`. The API is not frozen. Before 1.0,
+breaking API changes use a new minor version; patch versions preserve the documented
+API except for corrections to incorrect behavior.
+See the [implementation status](https://github.com/owebeeone/sdax-hamilton/blob/main/dev-docs/Implementation-Status.md)
+for validation and the [compatibility limits](https://github.com/owebeeone/sdax-hamilton/blob/main/docs/Compatibility.md)
+before adopting it.
 
-## Install from this checkout
+## Install
 
 Python 3.11 or later is required. This alpha pins `sdax==0.7.2` and
 `apache-hamilton==1.90.0`.
 
 ```sh
-python -m pip install .
+python -m pip install sdax-hamilton==0.1.0
 ```
 
 Define an application module, for example `nodes.py`:
@@ -49,7 +52,7 @@ async def greet(name: str) -> str:
 ```
 
 Use `plan.open(...)` when a requested result is an owned resource: its lifetime
-then includes the caller's `async with` body. See the [API guide](docs/API.md) for
+then includes the caller's `async with` body. See the [API guide](https://github.com/owebeeone/sdax-hamilton/blob/main/docs/API.md) for
 acquisition, cleanup, cancellation and retry contracts.
 
 This is a whole-graph translator, not an adapter for Hamilton's `AsyncDriver`.
@@ -68,7 +71,7 @@ python -m pytest -q -p no:cacheprovider
 
 Public tests run from this repository without the workspace, private evidence or
 ignored `scratch/` prototypes. The historical
-[design and comparison documents](dev-docs/README.md) explain the decisions;
+[design and comparison documents](https://github.com/owebeeone/sdax-hamilton/blob/main/dev-docs/README.md) explain the decisions;
 the current API guide describes the implemented surface.
 
-MIT licensed; see [LICENSE](LICENSE).
+MIT licensed; see [LICENSE](https://github.com/owebeeone/sdax-hamilton/blob/main/LICENSE).

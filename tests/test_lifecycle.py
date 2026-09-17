@@ -419,6 +419,121 @@ async def result(owner: int) -> int:
 
 
 @pytest.mark.asyncio
+async def test_forward_self_cancellation_survives_cleanup_failure(make_module):
+    cancelled = asyncio.CancelledError("forward cancelled itself")
+    cleanup_error = RuntimeError("release failed")
+    mod = make_module(
+        """
+def owner() -> int:
+    return 1
+@shutdown(of=owner)
+def close(state: Acquisition[int]) -> None:
+    raise cleanup_error
+async def result(owner: int) -> int:
+    raise cancelled
+""",
+        cancelled=cancelled,
+        cleanup_error=cleanup_error,
+    )
+    with pytest.raises(BaseExceptionGroup) as info:
+        await Driver(mod).prepare(["result"]).execute()
+    assert cancelled in leaves(info.value)
+    assert cleanup_error in leaves(info.value)
+
+
+@pytest.mark.asyncio
+async def test_simultaneous_forward_failure_preserves_caller_cancellation(make_module):
+    error = ValueError("forward failed concurrently")
+    calls = []
+    mod = make_module(
+        """
+def owner() -> int:
+    return 1
+@shutdown(of=owner)
+def close(state: Acquisition[int]) -> None:
+    calls.append('close')
+async def result(owner: int) -> int:
+    caller.cancel('external cancellation')
+    raise error
+""",
+        caller=None,
+        error=error,
+        calls=calls,
+    )
+
+    async def use():
+        mod.caller = asyncio.current_task()
+        await Driver(mod).prepare(["result"]).execute()
+
+    job = asyncio.create_task(use())
+    with pytest.raises(asyncio.CancelledError, match="external cancellation") as info:
+        await job
+    assert any(error in leaves(exc) for exc in failures(info.value))
+    assert calls == ["close"]
+
+
+@pytest.mark.asyncio
+async def test_preexisting_cancellation_count_does_not_cancel_new_invocation(make_module):
+    mod = make_module("""
+def result() -> int:
+    return 7
+""")
+
+    async def use():
+        task = asyncio.current_task()
+        task.cancel("earlier handled cancellation")
+        try:
+            await asyncio.sleep(0)
+        except asyncio.CancelledError:
+            pass
+        before = task.cancelling()
+        assert before == 1
+        assert await Driver(mod).prepare(["result"]).execute() == {"result": 7}
+        assert task.cancelling() == before
+
+    await asyncio.create_task(use())
+
+
+@pytest.mark.asyncio
+async def test_repeated_caller_cancellation_joins_forward_drain_before_release(make_module):
+    started, draining, finish = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    events = []
+    mod = make_module(
+        """
+def owner() -> int:
+    return 1
+@shutdown(of=owner)
+def close(state: Acquisition[int]) -> None:
+    events.append('release')
+async def result(owner: int) -> int:
+    started.set()
+    try:
+        await asyncio.Event().wait()
+    finally:
+        draining.set()
+        await finish.wait()
+        events.append('forward-drained')
+    return owner
+""",
+        started=started,
+        draining=draining,
+        finish=finish,
+        events=events,
+    )
+    job = asyncio.create_task(Driver(mod).prepare(["result"]).execute())
+    await asyncio.wait_for(started.wait(), 1)
+    job.cancel("first cancellation")
+    await asyncio.wait_for(draining.wait(), 1)
+    job.cancel("second cancellation")
+    await asyncio.sleep(0)
+    assert not job.done() and not events
+    finish.set()
+    with pytest.raises(asyncio.CancelledError, match="first cancellation"):
+        await asyncio.wait_for(job, 1)
+    assert events == ["forward-drained", "release"]
+
+
+@pytest.mark.asyncio
 async def test_independent_cleanup_faults_are_both_reported(make_module):
     left_error, right_error = RuntimeError("left"), LookupError("right")
     both_releasing = asyncio.Event()

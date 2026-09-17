@@ -104,6 +104,43 @@ def test_declared_edge_compatibility(produced, required, expected):
     assert compatible(produced, required) is expected
 
 
+@pytest.mark.parametrize("required", [tuple[()], Tuple[()]])
+@pytest.mark.parametrize(
+    "produced, expected",
+    [
+        (tuple[()], True),
+        (Tuple[()], True),
+        (tuple, False),
+        (Tuple, False),
+        (tuple[int], False),
+        (tuple[int, ...], False),
+        (tuple[int, str], False),
+    ],
+)
+def test_empty_tuple_edges_require_empty_producer(produced, required, expected):
+    assert compatible(produced, required) is expected
+
+
+@pytest.mark.parametrize("required", ["tuple[()]", "Tuple[()]"])
+def test_nonempty_tuple_edge_rejected_before_callbacks(module_factory, required):
+    calls = []
+    module = module_factory(
+        f"""
+from typing import Tuple
+def source() -> tuple[int]:
+    calls.append("source")
+    return (1,)
+def result(source: {required}) -> int:
+    calls.append("result")
+    return len(source)
+""",
+        calls=calls,
+    )
+    with pytest.raises(TypeError, match="Incompatible edge"):
+        Driver(module).prepare(["result"])
+    assert calls == []
+
+
 @pytest.mark.parametrize(
     "annotation",
     [

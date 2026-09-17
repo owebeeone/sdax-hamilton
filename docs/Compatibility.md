@@ -1,8 +1,10 @@
 # Compatibility and limits
 
-The alpha targets exactly `sdax==0.7.2` and `apache-hamilton==1.90.0`, on Python
-3.11 or later. Local wheel tests pass on Python 3.11.14, 3.12.12 and 3.13.12;
-other interpreter/platform combinations still require qualification. A dependency pin identifies
+The experimental release targets exactly `sdax==0.7.2` and `apache-hamilton==1.90.0`,
+with qualified Python versions 3.11–3.13. The initial alpha passed local macOS wheel
+tests and Ubuntu CI on these versions; release artifacts must pass the wheel matrix
+again before publication. Other interpreter/platform combinations still require
+qualification. A dependency pin identifies
 the implementation being integrated; it does not imply support for its entire API.
 
 The compiler imports actual Hamilton declarations. It uses Hamilton's resolution

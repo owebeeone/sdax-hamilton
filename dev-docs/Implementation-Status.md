@@ -1,8 +1,8 @@
 # Implementation status
 
-Date: 18 September 2026. Initial alpha: `0.1.0a1`.
+Date: 18 September 2026. Experimental release: `0.1.0`.
 
-The repository now contains a standalone alpha package. This file records current
+The repository now contains a standalone experimental package. This file records current
 product work; the earlier design, adversarial
 review and comparison report remain historical records.
 
@@ -23,7 +23,7 @@ supersede proposed spellings in the original design when they differ. In particu
 raw availability is distinct from valid typed access, and retry defaults follow
 the pinned SDAX version with a one-second initial delay.
 
-## Validation
+## Initial alpha validation (0.1.0a1)
 
 The maintained suite contains **155 tests**, including early rejection cases.
 Both direct dependencies were installed from their published PyPI distributions,
@@ -70,19 +70,36 @@ sdax_hamilton-0.1.0a1.tar.gz
 1ee65c10fe7f7a4c70b015d5f91e9c209529a7aaa86fc6edb90a334ef7f0764a
 ```
 
-The CI workflow defines an Ubuntu/Python 3.11, 3.12 and 3.13 matrix. It is intended
-qualification coverage; adding that workflow does not mean it has run. No hosted
-release or package publication is performed by that workflow.
+The initial alpha's [GitHub CI run](https://github.com/owebeeone/sdax-hamilton/actions/runs/35287282135)
+also passed on Ubuntu/Python 3.11, 3.12 and 3.13. Those results and the hashes above
+describe the original alpha, not the subsequent release artifacts.
 
-## Remaining release gates
+## Release qualification (0.1.0)
 
-- Broaden compatibility only with new conformance cases; initial support remains
-  the explicit [compatibility subset](../docs/Compatibility.md).
-- Complete an independent review of the alpha API and its remaining ownership
-  limits. Passing named cancellation cases is not proof of every interleaving.
-- Qualify the CI Python/platform matrix before claiming support beyond local
-  execution evidence.
-- Freeze the public API and independently authorize any release/publication.
+The [implementation review](release-review-0.1.0.md) is separate from the earlier
+design review. Release fixes address an empty-tuple edge-validation bypass and
+cancellation failure preservation. Each correction has maintained regression tests.
+Passing these named cancellation cases is not proof of every interleaving.
+
+The full release suite now contains **175 tests**. It passed from the source
+checkout and from the built `0.1.0` wheel in fresh Python 3.11.14, 3.12.12 and
+3.13.12 environments on macOS. All three wheel environments passed the lifecycle
+example. Ruff, package/authoring mypy, strict Twine metadata validation and
+Actionlint passed. The wheel's package sources match the checkout; its typing
+marker is present, and neither distribution contains scratch, private evidence
+or cache directories. Release build artifacts remain outside the repository.
+
+The release workflow builds the sdist and a wheel from that sdist, checks package
+metadata and tests the installed wheel across Python 3.11–3.13 before publishing
+those same artifacts. See [Releasing](../docs/Releasing.md) for the qualification
+and trusted publishing procedure. Publication is authorized by the maintainer;
+the version tag triggers publication only after the workflow gates pass.
+
+The API remains experimental. Breaking API changes before 1.0 use a new minor
+version; patch versions preserve the documented API except for corrections to
+incorrect behavior. Initial support remains the explicit
+[compatibility subset](../docs/Compatibility.md); expansion needs new conformance
+cases, not a broader untested claim.
 
 Deferred work includes partial-acquisition publication, cleanup between acquisition
 attempts, dynamic Hamilton graphs, richer modifiers, typed result mappings,

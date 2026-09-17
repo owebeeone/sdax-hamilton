@@ -93,6 +93,10 @@ def compatible(produced: Any, required: Any) -> bool:
         return all(accepts(arg, required) for arg in get_args(produced))
     if po and isinstance(required, type):
         return isinstance(po, type) and issubclass(po, required)
+    if ro is tuple and required is not Tuple and not get_args(required):
+        # Empty tuple annotations and bare typing.Tuple both expose no args,
+        # but only the latter accepts arbitrary tuple contents.
+        return po is tuple and produced is not Tuple and not get_args(produced)
     if po is ro and po in (list, dict, tuple, set, frozenset):
         return not get_args(required) or get_args(produced) == get_args(required)
     if isinstance(produced, type) and isinstance(required, type):
