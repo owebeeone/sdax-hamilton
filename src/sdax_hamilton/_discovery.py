@@ -39,6 +39,14 @@ def _module_functions(module: ModuleType) -> tuple[FunctionType, ...]:
     return functions
 
 
+def _module_shutdowns(module: ModuleType) -> tuple[FunctionType, ...]:
+    _loaded_module(module)
+    shutdowns = tuple(fn for _, fn in find_functions(module) if hasattr(fn, "__sdax_shutdown__"))
+    for release in shutdowns:
+        _defining_module(release)
+    return shutdowns
+
+
 def _nested_functions(fn: FunctionType) -> tuple[FunctionType, ...]:
     nested: list[FunctionType] = []
     for modifier in getattr(fn, base.NodeCreator.get_lifecycle_name(), ()):
@@ -71,10 +79,8 @@ def _matching_shutdowns(
     shutdowns: list[FunctionType] = []
     shutdown_ids: set[int] = set()
     for scope in scopes:
-        for release in _module_functions(scope):
-            if not hasattr(release, "__sdax_shutdown__"):
-                continue
-            owner = release.__sdax_shutdown__[0]
+        for release in _module_shutdowns(scope):
+            owner = getattr(release, "__sdax_shutdown__")[0]
             if id(owner) not in owner_ids:
                 if (owner.__module__, owner.__qualname__) in owner_names:
                     raise ValueError(f"Ambiguous shutdown owner for {release.__qualname__}")

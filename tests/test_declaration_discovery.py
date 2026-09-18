@@ -219,3 +219,25 @@ def close_unrelated(state: Acquisition[int]) -> None:
     )
 
     assert discover_shutdowns_for([helpers.captured]) == (helpers.close_captured,)
+
+
+def test_helper_shutdown_discovery_ignores_an_unrelated_rebound_function(module_factory):
+    helpers = module_factory(
+        """
+from sdax_hamilton import Acquisition, shutdown
+
+def captured() -> int:
+    return 1
+
+def unrelated() -> int:
+    return 2
+
+@shutdown(of=captured)
+def close_captured(state: Acquisition[int]) -> None:
+    pass
+"""
+    )
+    helpers.rebound = helpers.unrelated
+    del helpers.unrelated
+
+    assert discover_shutdowns_for([helpers.captured]) == (helpers.close_captured,)
