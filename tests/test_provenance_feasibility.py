@@ -198,7 +198,9 @@ def projected(acquire: Handle) -> dict[str, int]:
 
     assert specs["number"].role is GeneratedRole.PROJECTION
     assert specs["number"].borrow_from == frozenset({"acquire"})
-    assert await PreparedPlan(specs, ["number"]).execute() == {"number": 7}
+    async with PreparedPlan(specs, ["number"]).open() as result:
+        assert result == {"number": 7}
+        assert events == [("acquire", 7)]
     assert events == [("acquire", 7), ("release", 7)]
 
 

@@ -166,7 +166,11 @@ class PreparedPlan:
         overrides: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Return ordinary results after shutdown; resource outputs require open()."""
-        if any(self._selection.nodes[name].release is not None for name in self.outputs):
+        if any(
+            self._selection.nodes[name].release is not None
+            or self._selection.nodes[name].borrow_from
+            for name in self.outputs
+        ):
             raise ValueError("Use open() to access resource outputs within their lifetime")
         async with self.open(inputs=inputs, overrides=overrides) as result:
             return result
