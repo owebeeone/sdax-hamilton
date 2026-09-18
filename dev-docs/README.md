@@ -8,6 +8,7 @@ Created: 18 September 2026.
 | [Current API](../docs/API.md) | Implemented alpha API and lifecycle contracts. |
 | [Compatibility](../docs/Compatibility.md) | Exact admitted declarations, type checks and limitations. |
 | [Decorator support plan](Decorator-Support-Plan.md) | New phased roadmap and dependency DAG for all shipped Hamilton decorators; parallel GWZ local-clone procedure. |
+| [Coverage execution](Coverage-Execution.md) | Active worker assignments, baseline qualification and implementation gate evidence. |
 | [Safety review A6a](Decorator-Support-Plan-ReviewA6a.md) | Independent safety review, first-pass findings and secondary assessment. |
 | [Architecture review A6b](Decorator-Support-Plan-ReviewA6b.md) | Independent code-minimization review, first-pass findings and secondary assessment. |
 | [Decorator inventory](Decorator-Support-Inventory.md) | Pinned decorator/helper/plugin inventory, confirmed upstream defects and implementation risks. |
