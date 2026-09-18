@@ -136,13 +136,6 @@ def result(x: list[int]) -> int:
             "grouped/config",
         ),
         (
-            """from hamilton.function_modifiers import config
-@config(lambda values: True)
-def result() -> int:
-    return 1""",
-            "custom Hamilton config",
-        ),
-        (
             """from hamilton.function_modifiers import extract_fields
 @extract_fields({"field": int})
 def result() -> dict:

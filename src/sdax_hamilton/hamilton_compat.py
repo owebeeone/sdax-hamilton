@@ -12,9 +12,22 @@ from typing import Any, get_args, get_origin, get_type_hints
 
 import hamilton
 from hamilton import graph, node
-from hamilton.function_modifiers import base, config, inject, parameterize, tag
-from hamilton.function_modifiers.configuration import ConfigResolver
+from hamilton.function_modifiers import (
+    base,
+    config,
+    hamilton_exclude,
+    inject,
+    parameterize,
+    parameterize_sources,
+    parameterize_values,
+    parameterized_inputs,
+    parametrized,
+    parametrized_input,
+    tag,
+    tag_outputs,
+)
 from hamilton.function_modifiers.dependencies import LiteralDependency, UpstreamDependency
+from hamilton.function_modifiers.metadata import RayRemote, SchemaOutput, cache
 from hamilton.graph_utils import find_functions
 from hamilton.lifecycle.base import LifecycleAdapterSet
 
@@ -33,7 +46,22 @@ _LIFECYCLES = (
     base.NodeDecorator,
     base.DynamicResolver,
 )
-_SUPPORTED = (config, inject, parameterize, tag)
+_EXCLUDED = type(hamilton_exclude)
+_SUPPORTED = (
+    config,
+    inject,
+    parameterize,
+    parameterize_sources,
+    parameterize_values,
+    parametrized,
+    parametrized_input,
+    parameterized_inputs,
+    tag,
+    tag_outputs,
+    SchemaOutput,
+    cache,
+    RayRemote,
+)
 _PARAMETERIZE_INTERNAL_INPUTS = frozenset(
     (
         "upstream_dependencies",
@@ -76,6 +104,10 @@ def _decorators(fn):
         for stage in _LIFECYCLES
         for modifier in getattr(fn, stage.get_lifecycle_name(), ())
     )
+
+
+def _excluded(fn):
+    return any(type(modifier) is _EXCLUDED for modifier in _decorators(fn))
 
 
 def _copy_function(fn):
@@ -142,6 +174,8 @@ def _validate_bindings(fn, modifier, hints, parameters):
 
 
 def _validate_declaration(fn):
+    if _excluded(fn):
+        return
     if inspect.isgeneratorfunction(fn) or inspect.isasyncgenfunction(fn):
         raise TypeError(f"{fn.__name__}: generator and async-generator functions unsupported")
     hints = get_type_hints(fn, include_extras=True)
@@ -164,8 +198,6 @@ def _validate_declaration(fn):
             raise ValueError(
                 f"{fn.__name__}: unsupported Hamilton decorator {type(modifier).__name__}"
             )
-        if type(modifier) is config and type(modifier.does_resolve) is not ConfigResolver:
-            raise ValueError(f"{fn.__name__}: custom Hamilton config resolver unsupported")
         if isinstance(modifier, parameterize):
             _validate_bindings(fn, modifier, hints, parameters)
 
@@ -239,9 +271,14 @@ def compile_modules(modules, configuration):
             raise ValueError(f"{release.__name__}: owner not discovered in supplied modules")
         release_type = _release_type(release)
         owned.setdefault(owner, []).append((_copy_function(release), target, policy, release_type))
+    for owner in owned:
+        if _excluded(owner):
+            raise ValueError(f"{owner.__name__}: excluded declaration cannot own a shutdown")
 
     resolved, specs = {}, {}
     for fn in declarations:
+        if _excluded(fn):
+            continue
         _validate_declaration(fn)
         expanded = tuple(base.resolve_nodes(_copy_function(fn), dict(configuration)))
         if not expanded:
@@ -288,6 +325,7 @@ def compile_modules(modules, configuration):
                 fn=entry.callable,
                 output_type=entry.type,
                 inputs=MappingProxyType(inputs),
+                tags=entry.tags,
                 policy=policy if entry.name in policy_targets else Policy(),
                 release=release,
                 release_policy=release_policy,
