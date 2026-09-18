@@ -5,13 +5,16 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
+from hamilton import node
+from hamilton.function_modifiers import adapters as hamilton_adapters
 from hamilton.function_modifiers import base, dataloader
-from hamilton.function_modifiers.adapters import LoadFromDecorator
-from hamilton.io.data_adapters import DataLoader
+from hamilton.function_modifiers.adapters import LoadFromDecorator, SaveToDecorator
+from hamilton.io.data_adapters import DataLoader, DataSaver
 
 from sdax_hamilton._hamilton_loader import (
     correct_load_from_annotations,
     install_load_from_correction,
+    install_save_to_preflight,
 )
 from sdax_hamilton._types import accepts
 
@@ -31,6 +34,48 @@ class _MemoryIntegerLoader(DataLoader):
     def load_data(self, type_: type) -> tuple[int, dict[str, Any]]:
         self.calls.append("load")
         return 7, {"source": "memory"}
+
+
+@dataclass
+class _LiteralCheckedLoader(DataLoader):
+    threshold: int
+    calls: list[str]
+
+    def __post_init__(self) -> None:
+        self.calls.append("construct")
+
+    @classmethod
+    def applicable_types(cls):
+        return [int]
+
+    @classmethod
+    def name(cls) -> str:
+        return "literal-checked"
+
+    def load_data(self, type_: type) -> tuple[int, dict[str, Any]]:
+        self.calls.append("load")
+        return self.threshold, {"source": "memory"}
+
+
+@dataclass
+class _LiteralCheckedSaver(DataSaver):
+    threshold: int
+    calls: list[str]
+
+    def __post_init__(self) -> None:
+        self.calls.append("construct")
+
+    @classmethod
+    def applicable_types(cls):
+        return [int]
+
+    @classmethod
+    def name(cls) -> str:
+        return "literal-checked"
+
+    def save_data(self, data: int) -> dict[str, Any]:
+        self.calls.append("save")
+        return {"saved": data}
 
 
 def _generated_loader_pair(calls: list[str]):
@@ -140,12 +185,22 @@ def test_admitted_unexpected_generated_shape_fails_closed():
         correct_load_from_annotations((raw, projection), load_from_admitted=True)
 
 
-def test_copied_load_from_wrapper_corrects_only_its_generated_pair_and_snapshots_bindings():
+def test_copied_load_from_wrapper_corrects_only_its_generated_pair_and_snapshots_bindings(
+    monkeypatch,
+):
     calls: list[str] = []
     changed_calls: list[str] = []
+    selections: list[type] = []
     loader_classes = [_MemoryIntegerLoader]
     application_modifier = LoadFromDecorator(loader_classes, calls=calls)
     copied_modifier = install_load_from_correction(copy(application_modifier))
+    original_resolve = hamilton_adapters.resolve_adapter_class
+
+    def count_selection(type_, loader_candidates):
+        selections.append(type_)
+        return original_resolve(type_, loader_candidates)
+
+    monkeypatch.setattr(hamilton_adapters, "resolve_adapter_class", count_selection)
 
     loader_classes.clear()
     application_modifier.kwargs["calls"] = changed_calls
@@ -155,9 +210,41 @@ def test_copied_load_from_wrapper_corrects_only_its_generated_pair_and_snapshots
     assert application_modifier.kwargs["calls"] is changed_calls
     assert copied_modifier.loader_classes == (_MemoryIntegerLoader,)
     assert copied_modifier.kwargs["calls"] is calls
+    assert selections == [int]
     assert raw.type == tuple[int, dict[str, Any]]
     assert projection.input_types[raw.name][0] == raw.type
     assert raw.callable() == (7, {"source": "memory"})
     assert calls == ["load"]
     assert changed_calls == []
     assert install_load_from_correction(copied_modifier) is copied_modifier
+
+
+def test_copied_load_from_wrapper_rejects_bad_captured_literal_before_construction():
+    calls: list[str] = []
+    copied_modifier = install_load_from_correction(
+        copy(LoadFromDecorator((_LiteralCheckedLoader,), threshold="wrong", calls=calls))
+    )
+
+    with pytest.raises(TypeError, match="bound loader literal has wrong type"):
+        copied_modifier.get_loader_nodes("item", int, "consumer")
+
+    assert calls == []
+
+
+def test_copied_save_to_wrapper_rejects_bad_captured_literal_before_construction():
+    calls: list[str] = []
+    copied_modifier = install_save_to_preflight(
+        copy(
+            SaveToDecorator(
+                (_LiteralCheckedSaver,), threshold="wrong", calls=calls, output_name_="saved"
+            )
+        )
+    )
+
+    def result() -> int:
+        return 7
+
+    with pytest.raises(TypeError, match="bound saver literal has wrong type"):
+        copied_modifier.create_saver_node(node.Node.from_fn(result), {}, result)
+
+    assert calls == []

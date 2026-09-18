@@ -27,6 +27,24 @@ Already-correct pairs are returned unchanged.
 
 This is a local compatibility boundary, not a Hamilton patch. It performs no
 adapter lookup, construction, loader invocation, registry mutation, or I/O.
+The installed copied-instance wrapper also reads the selected raw callable's
+fixed Hamilton 1.90.0 defaults before returning its nodes. The captured
+`AdapterFactory` supplies the already selected adapter class and the captured
+literal map supplies values that Hamilton removed from generated node inputs.
+The wrapper validates those literals against that class's required and optional
+argument contracts with SDAX's supported runtime type checks. It does not
+resolve an adapter again or construct one, so an invalid literal fails before
+any adapter effect. In the pinned upstream source, the contract class methods
+read dataclass fields and resolved type hints; Hamilton has already called them
+while making the generated node. The preflight repeats that contract
+introspection after selection to recover the erased literal types. Admitted
+adapter contract methods must therefore retain Hamilton's normal pure,
+no-I/O introspection behavior; this helper does not call `resolve_adapter_class`
+or either factory creation method.
+The copied exact `SaveToDecorator` uses the same bounded technique on its
+generated saver node: it validates the selected `AdapterFactory`'s captured
+literals before the node can construct a saver. It does not infer acquisition
+ownership or change saver selection, target, metadata, or execution behavior.
 Phase F remains responsible for admitting I/O decorators, preserving Hamilton's
 adapter precedence, snapshotting selected adapter identity, and qualifying
 execution effects. Retire this helper when the pinned Hamilton version is
