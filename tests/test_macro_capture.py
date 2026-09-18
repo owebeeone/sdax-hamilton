@@ -5,6 +5,7 @@ import inspect
 
 import pytest
 
+from sdax_hamilton._construction import resolve_nodes
 from sdax_hamilton._hamilton_pipeline import (
     correct_copied_async_output_pipelines,
     snapshot_copied_macro_bindings,
@@ -22,9 +23,7 @@ def _snapshot(fn):
 
 
 def _nodes(fn, config=None):
-    from hamilton.function_modifiers import base
-
-    return {entry.name: entry for entry in base.resolve_nodes(_snapshot(fn), dict(config or {}))}
+    return {entry.name: entry for entry in resolve_nodes(_snapshot(fn), dict(config or {}))}
 
 
 def test_snapshot_matches_stock_macro_graph_and_values(module_factory, hamilton_oracle, graph_signature):
@@ -314,12 +313,10 @@ def add(value: int, offset: int) -> int:
 def result(value: int) -> int:
     return value
 """)
-    from hamilton.function_modifiers import base
-
     snapshot = _snapshot(module.result)
-    assert [entry.name for entry in base.resolve_nodes(snapshot, {"mode": "safe"})] == ["result"]
+    assert [entry.name for entry in resolve_nodes(snapshot, {"mode": "safe"})] == ["result"]
     with pytest.raises(TypeError, match="pipeline step.offset: bound literal has wrong type"):
-        base.resolve_nodes(snapshot, {"mode": "unsafe"})
+        resolve_nodes(snapshot, {"mode": "unsafe"})
 
 
 def test_mutually_exclusive_pipeline_steps_are_checked_only_on_the_selected_path(module_factory):
@@ -359,7 +356,5 @@ def piped(value: int) -> int:
 
     with pytest.raises(TypeError, match="replacement.offset: invalid default"):
         validate_copied_macro_bindings(_snapshot(module.replaced))
-    from hamilton.function_modifiers import base
-
     with pytest.raises(TypeError, match="pipeline step.offset: invalid default"):
-        base.resolve_nodes(_snapshot(module.piped), {})
+        resolve_nodes(_snapshot(module.piped), {})
