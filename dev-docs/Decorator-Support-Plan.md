@@ -230,6 +230,7 @@ flowchart TD
 | P4 | Generated ownership/selection/policy support. | Real acquisitions own; projections borrow; known identity aliases retain origin. Selected aliases keep owners reachable. Prevent owned replacement/escape and validation-evidence bypass. SDAX tasks express lifetime order; preserve call/check separation. |
 | U1 | Version-bounded async pipeline correction. | Reproduce missing return annotation; then prove awaited values, identity wrapper behavior, errors/cancellation. Guard exact versions; record removal condition. |
 | U2 | Version-bounded generated loader annotation correction. | Correct raw `(data, metadata)` contract without disabling checks. Test valid/invalid loader data and projection. Guard exact versions; record removal condition. |
+| U3 | Version-bounded configured-model required-config dispatch correction. | On the copied exact `model`/`dynamic_transform` modifier, forward `required_config` to the existing upstream `require_config`; do not reproduce model construction. Count one configuration resolution/construction per actual declaration mount and preserve its bound model state. |
 
 P1 and A can progress while S evaluates the harder composition. S confirms the
 actual interception mechanism before broad interfaces freeze. A narrow wrapper on
