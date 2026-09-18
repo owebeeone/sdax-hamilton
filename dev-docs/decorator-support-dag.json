@@ -512,5 +512,6 @@
       "kind": "extension",
       "status": "planned"
     }
-  ]
+  ],
+  "status_notes": "Per-task statuses track plan acceptance gates, not whether code has been integrated. The bounded static implementation is integrated; see Coverage-Execution.md and Coverage-Implementation-ReviewA6a.md / ReviewA6b.md for final review and corrective validation. Remaining documented compatibility restrictions and unexecuted release CI must not be interpreted as unrestricted coverage."
 }

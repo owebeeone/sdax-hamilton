@@ -53,6 +53,22 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
+        profile: [base]
+        include:
+          - python-version: "3.12"
+            profile: pandas
+          - python-version: "3.12"
+            profile: polars
+          - python-version: "3.12"
+            profile: pydantic
+          - python-version: "3.12"
+            profile: pandera
+          - python-version: "3.12"
+            profile: spark
+    env:
+      SDAX_HAMILTON_TEST_PROFILE: ${{ matrix.profile }}
+      PYARROW_IGNORE_TIMEZONE: "1"
+      SPARK_LOCAL_IP: "127.0.0.1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -65,12 +81,22 @@ jobs:
       - name: Install built wheel and its test dependencies
         run: |
           python - <<'PY'
+          import os
           import subprocess
           import sys
           from pathlib import Path
           wheel, = Path("dist").glob("*.whl")
-          subprocess.run([sys.executable, "-m", "pip", "install", f"{wheel}[test]"], check=True)
+          profile = os.environ["SDAX_HAMILTON_TEST_PROFILE"]
+          extras = "test" if profile == "base" else f"test,test-{profile}"
+          subprocess.run([sys.executable, "-m", "pip", "install", f"{wheel}[{extras}]"], check=True)
           PY
+      - name: Install full Java 21 runtime for local Spark
+        if: matrix.profile == 'spark'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes openjdk-21-jdk-headless
+          echo "JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64" >> "$GITHUB_ENV"
+          echo "PYSPARK_PYTHON=$(command -v python)" >> "$GITHUB_ENV"
       - name: Verify installed version and source isolation
         run: |
           python -I - <<'PY'
@@ -83,6 +109,7 @@ jobs:
           assert not Path(sdax_hamilton.__file__).is_relative_to(Path.cwd())
           PY
       - name: Lint and check authoring types
+        if: matrix.profile == 'base'
         run: |
           python -m ruff check --no-cache src tests examples
           python -m mypy src/sdax_hamilton tests/typing/authoring.py

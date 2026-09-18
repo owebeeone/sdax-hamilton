@@ -322,3 +322,115 @@ def enriched(frame: DataFrame) -> DataFrame:
         Driver(module)
     assert events == []
     assert SparkContext._active_spark_context is None
+
+
+@pytest.mark.parametrize("placement", ["loader", "saver", "indirect_saver", "independent"])
+def test_spark_rejects_connected_io_before_adapter_construction(
+    module_factory, monkeypatch, placement
+):
+    from dataclasses import dataclass
+
+    from hamilton.io.data_adapters import DataLoader, DataSaver
+    from hamilton.registry import LOADER_REGISTRY, SAVER_REGISTRY
+
+    effects = []
+
+    @dataclass
+    class Loader(DataLoader):
+        @classmethod
+        def applicable_types(cls):
+            return [DataFrame]
+
+        @classmethod
+        def name(cls):
+            return "sdax_spark_boundary"
+
+        def __post_init__(self):
+            effects.append("loader construction")
+
+        def load_data(self, type_):
+            raise AssertionError("must not load during construction")
+
+    @dataclass
+    class Saver(DataSaver):
+        @classmethod
+        def applicable_types(cls):
+            return [DataFrame]
+
+        @classmethod
+        def name(cls):
+            return "sdax_spark_boundary"
+
+        def __post_init__(self):
+            effects.append("saver construction")
+
+        def save_data(self, data):
+            raise AssertionError("must not save during construction")
+
+    monkeypatch.setitem(LOADER_REGISTRY, Loader.name(), [Loader])
+    monkeypatch.setitem(SAVER_REGISTRY, Saver.name(), [Saver])
+    prefix = "from hamilton.function_modifiers import load_from, save_to\n"
+    if placement in ("loader", "independent"):
+        loaded_name = "frame" if placement == "loader" else "unrelated"
+        prefix += f"""
+@load_from.sdax_spark_boundary()
+def {loaded_name}(loaded: DataFrame) -> DataFrame:
+    return loaded
+"""
+    saver = "@save_to.sdax_spark_boundary(output_name_='sink')\n"
+    policy = "@execution(target_='sink', timeout=1)\n"
+    outer = policy + saver if placement == "saver" else ""
+    suffix = ""
+    if placement == "indirect_saver":
+        suffix = policy + saver + """
+def forwarded(enriched: DataFrame) -> DataFrame:
+    return enriched
+"""
+    elif placement == "independent":
+        suffix = saver + """
+def unrelated_sink(independent: DataFrame) -> DataFrame:
+    return independent
+"""
+    module = module_factory(
+        prefix + """
+def primitive_double(value: int) -> int:
+    return value * 2
+""" + outer + """
+@with_columns(primitive_double, columns_to_pass=["value"],
+              select=["primitive_double"], namespace="enriched")
+def enriched(frame: DataFrame) -> DataFrame:
+    return frame
+""" + suffix,
+        with_columns=h_spark.with_columns,
+        DataFrame=DataFrame,
+        execution=execution,
+    )
+    if placement == "independent":
+        Driver(module)
+    else:
+        with pytest.raises(ValueError, match="Spark plans cannot compose Hamilton I/O decorators"):
+            Driver(module)
+    assert effects == []
+    assert SparkContext._active_spark_context is None
+
+
+def test_spark_rejects_nested_io_before_native_udf_combination(module_factory):
+    module = module_factory(
+        '''
+from hamilton.function_modifiers import dataloader
+
+@dataloader()
+def _loaded_column() -> tuple[int, dict]:
+    raise AssertionError("must not load during construction")
+
+@with_columns(_loaded_column, columns_to_pass=["value"],
+              select=["_loaded_column"], namespace="enriched")
+def enriched(frame: DataFrame) -> DataFrame:
+    return frame
+''',
+        with_columns=h_spark.with_columns,
+        DataFrame=DataFrame,
+    )
+    with pytest.raises(ValueError, match="Spark plans cannot compose Hamilton I/O decorators"):
+        Driver(module)
+    assert SparkContext._active_spark_context is None

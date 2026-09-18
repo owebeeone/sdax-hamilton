@@ -1,8 +1,9 @@
 # Compatibility and limits
 
 This development branch extends v0.1.0. The forms below describe current code,
-not a new release. Final consolidated review and artifact qualification remain
-release gates; progress is tracked in `dev-docs/Coverage-Execution.md`.
+not a new release. Consolidated review and local artifact qualification pass for
+the documented bounds below; release CI remains pending. Progress and corrections
+are tracked in `dev-docs/Coverage-Execution.md`.
 
 The experimental release targets exactly `sdax==0.7.2` and `apache-hamilton==1.90.0`,
 with qualified Python versions 3.11–3.13. The initial alpha passed local macOS wheel
@@ -79,7 +80,9 @@ backend/lifetime parity.
 
 Spark rejects owned acquisitions, shutdowns, borrowed values and nondefault
 execution/release policies throughout the upstream dependency chain. Nested UDFs
-cannot declare execution policies or shutdowns. Standalone `require_columns` and
+cannot declare execution policies or shutdowns. Hamilton I/O decorators are
+rejected upstream, downstream (including indirect consumers), and inside Spark
+UDF expansion; unrelated I/O branches remain supported. Standalone `require_columns` and
 Spark decorators mounted inside Hamilton subdags are rejected. Spark Connect,
 remote/background work and a Spark cancellation bridge are outside this profile.
 Trusted functions must build lazy plans without starting actions or background

@@ -13,8 +13,10 @@
 - Retain cache and Ray declarations as inactive metadata. SDAX remains the sole
   graph orchestrator; these declarations do not enable their execution backends.
 
-Consolidated review and final artifact qualification remain pending. Current
-boundaries are documented in [Compatibility](docs/Compatibility.md).
+Consolidated safety and architecture review passes after correcting Spark/I/O
+composition restrictions and making optional profiles required release gates.
+Local artifact checks pass; release CI remains pending. Current boundaries are
+documented in [Compatibility](docs/Compatibility.md).
 
 ## 0.1.0
 

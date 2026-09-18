@@ -2,7 +2,8 @@
 
 All five profiles now use ordinary public Driver admission; their temporary
 test admission fixtures have been removed. Installed-wheel qualification passes
-for all five profiles on Python 3.12. QC remains open for consolidated review.
+for all five profiles on Python 3.12. Consolidated findings and their corrections
+are recorded in the two implementation review reports. Release CI remains pending.
 The focused source results and complete installed-wheel results are recorded below.
 
 | Profile | Candidate versions | Current evidence |
@@ -11,13 +12,18 @@ The focused source results and complete installed-wheel results are recorded bel
 | Polars eager/lazy | Polars 1.44.2 | 7 focused cases pass, including public Driver composition and preserved lazy output |
 | Pydantic | Pydantic 2.13.5 | 9 focused cases pass, including model/dict representation and delayed validation |
 | Pandera | Pandera 0.33.1, Pandas 3.0.6 | 10 focused cases pass, including concrete dataframe representation and delayed validation |
-| Classic local Spark | PySpark 4.0.1, Pandas 2.3.3, PyArrow 21.0.0, Java 21 | 8 public Driver cases and 8 pure guard cases pass; 5 stock-Hamilton characterizations pass |
+| Classic local Spark | PySpark 4.0.1, Pandas 2.3.3, PyArrow 21.0.0, Java 21 | 13 public Driver cases and 8 pure guard cases pass; 5 stock-Hamilton characterizations pass |
 
 Complete installed-wheel suites, run outside the source repository without
 `PYTHONPATH`: Pandas **439 passed / 22 skipped**, Polars **441 / 23**, Pydantic
 **443 / 15**, Pandera **444 / 14**, Spark **447 / 22**. Skips belong to other
 profiles. The Polars schema-resolution performance warning and Pandera import
 deprecation warning originate in the pinned dependency paths.
+
+After the review corrections, the rebuilt wheel's complete Spark suite passes
+**453 tests / 22 skipped**, including the five new I/O restrictions and the new
+compiler import-boundary check. Base wheel suites pass **435 / 24** on each of
+Python 3.11–3.13. Earlier profile counts above identify the pre-correction run.
 
 The four non-Spark profiles ran in the shared static-profile environment; Spark
 ran in its separate compatible environment. Isolated per-profile Ubuntu CI jobs
@@ -57,6 +63,10 @@ Connect, background/remote work and a Spark cancellation bridge are outside this
 profile. Standalone `require_columns` and Spark decorators inside Hamilton subdags
 are rejected. Nested UDF execution/shutdown declarations are rejected before
 native expansion, including declarations hidden by the generated wrapper.
+The consolidated review also requires rejecting Hamilton I/O decorators in
+Spark ancestors, descendants and nested UDF expansion. Independent I/O branches
+remain allowed. Five public construction regressions verify these restrictions
+without creating a session or invoking adapter constructors.
 
 Trusted decorated functions must build plans without starting actions or
 background jobs. Static decorator admission cannot prove that arbitrary Python

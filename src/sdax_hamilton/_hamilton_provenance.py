@@ -63,6 +63,7 @@ from ._hamilton_pipeline import (
     validate_copied_macro_bindings,
     validate_copied_macro_modifier,
 )
+from ._hamilton_spark import reject_spark_io
 from ._hamilton_validation import (
     correct_validation_gate,
     correct_validation_representation,
@@ -1054,6 +1055,9 @@ class _ProvenanceCapture:
             inject_parameter: str,
             generated_nodes: Collection[node.Node],
         ) -> tuple[list[node.Node], str]:
+            if profile == "spark":
+                for entry in generated_nodes:
+                    reject_spark_io(entry.name, entry.tags)
             generated, current = chain_subdag_nodes(fn, inject_parameter, generated_nodes)
             generated = list(generated)
             before_namespace[:] = [

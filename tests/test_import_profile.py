@@ -1,11 +1,31 @@
 """Run the base conformance profile without ambient optional backend imports."""
 
+import ast
 import os
 import subprocess
 import sys
 from pathlib import Path
 
 import sdax_hamilton
+
+
+def test_hamilton_imports_stay_inside_the_compiler_boundary():
+    """Inspect all branches of installed source, including inactive imports."""
+    package = Path(sdax_hamilton.__file__).resolve().parent
+    compiler_modules = {"hamilton_compat", "_construction", "_discovery"}
+    violations = []
+    for path in package.glob("*.py"):
+        if path.stem in compiler_modules or path.stem.startswith("_hamilton_"):
+            continue
+        for statement in ast.walk(ast.parse(path.read_text())):
+            names = []
+            if isinstance(statement, ast.Import):
+                names = [alias.name for alias in statement.names]
+            elif isinstance(statement, ast.ImportFrom) and statement.level == 0:
+                names = [statement.module or ""]
+            if any(name.split(".")[0] == "hamilton" for name in names):
+                violations.append(f"{path.name}:{statement.lineno}")
+    assert not violations, f"Hamilton imports outside compiler boundary: {violations}"
 
 
 def test_base_profile_runs_with_optional_packages_unavailable(tmp_path):

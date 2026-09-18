@@ -256,3 +256,41 @@ of unrestricted Hamilton composition parity. SDAX core is unchanged.
 Code completion does not close the consolidated safety/architecture review or
 the final plan acceptance gates. Review agents remain paused at this checkpoint;
 no push, release, version bump or publication was performed.
+
+## Consolidated review and corrections
+
+The original safety and architecture reviewers independently reviewed the
+code-complete `e0093b5` snapshot. Their reports are
+[safety](Coverage-Implementation-ReviewA6a.md) and
+[architecture](Coverage-Implementation-ReviewA6b.md). Follow-up review is limited
+to concrete findings; no further per-lane review cycle was started.
+
+The safety reviewer demonstrated that known Hamilton I/O nodes could enter or
+consume a Spark plan despite the caller-owned/lazy-only profile. The correction
+rejects reserved loader/saver tags in Spark ancestors and descendants, including
+indirect consumers. It also checks nested nodes before native Spark UDF combination
+can hide their tags. Unrelated I/O branches remain admitted. No new persistent
+graph field, scheduler or SDAX-core change was needed. Five public regressions
+verify rejection and independence before adapter construction or Spark startup.
+
+The release audit found that optional profiles were tested only in a separate
+workflow. The release wheel matrix now includes the five optional profiles as
+required publishing dependencies alongside the three base Python versions.
+YAML, matrix expansion (eight distinct jobs), and embedded Python were checked
+locally; GitHub execution remains pending. An installed-source AST regression
+also checks that Hamilton imports remain inside the compiler boundary, including
+inactive branches.
+
+After these corrections, a new wheel built from the sdist passes **435 tests**
+on each of Python **3.11–3.13** and **453 tests** in the Spark profile. All runs
+use the installed package, isolated Python mode and an external working directory.
+Lint, mypy and whitespace checks pass. The other four optional profiles passed
+at the preceding checkpoint; the production correction affects only Spark.
+Artifacts are local qualification builds retaining version 0.1.0, not a release.
+
+Both reviewers give the corrected tree a bounded **PASS**, with no remaining
+concrete safety or architecture blocker in their reviewed scope. Each independently
+reran the five Spark regressions. The optional observation about repeated pipeline
+helper annotation inspection is deferred; it does not justify adding a cache or
+framework. Release CI execution and existing documented compatibility limits
+remain separate from this local review verdict.
