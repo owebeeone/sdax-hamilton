@@ -1,5 +1,9 @@
 # Compatibility and limits
 
+This development branch extends v0.1.0. Newly implemented forms below still require
+the coverage plan's integration gates before another release; implementation and
+qualification progress are tracked in `dev-docs/Coverage-Execution.md`.
+
 The experimental release targets exactly `sdax==0.7.2` and `apache-hamilton==1.90.0`,
 with qualified Python versions 3.11–3.13. The initial alpha passed local macOS wheel
 tests and Ubuntu CI on these versions; release artifacts must pass the wheel matrix
@@ -60,9 +64,10 @@ The initial type vocabulary is intentionally small:
 | `Literal` | String, integer, boolean, byte-string and `None` literals; value and runtime type must match. |
 | `list`, `dict`, `set`, `frozenset` | Admitted bare/parameterized forms; runtime checks inspect every element. |
 | `tuple` | Fixed heterogeneous, variadic and empty tuple forms. |
+| `TypedDict` | Required/optional fields, nested values and resolved forward annotations are checked as dictionaries. Extra keys are allowed. Edges accept the identical declaration, `dict`, `object` and compatible unions; structural equivalence between different declarations is not inferred. |
 
 Edge compatibility is conservative where container parameters differ. The
-maintained tests define exact admitted cases. Protocols, `TypedDict`, arbitrary
+maintained tests define exact admitted cases. Protocols, arbitrary
 generics/type variables and complete Python typing semantics are not promised.
 
 These checks do not prove function bodies, lifetime safety, immutable values or
@@ -90,6 +95,10 @@ offloaded to a worker.
   lifecycle pattern.
 - Mutable globals, closures, defaults, literals and config values remain shared
   application objects. Separate run contexts do not make these objects reentrant.
+- Hamilton 1.90.0 can probe/import installed default-validator packages, including
+  Pandera, during its own import even with registry autoload disabled. These are
+  trusted dependency imports. Cache/Ray metadata does not activate backend execution;
+  the base test profile runs with optional packages unavailable.
 
 See [API](API.md) for detailed lifetime and failure contracts. Broader Hamilton
 support should be added with explicit conformance and lifecycle tests, not by

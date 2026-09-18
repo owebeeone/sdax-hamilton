@@ -118,3 +118,16 @@ backend activation remains explicit; metadata never activates Ray or caching.
 The test isolates unavailable optional packages and separately asserts the pinned
 Pandera probe and absence of Ray import requests. This does not claim that ambient
 installed validator packages are never imported by Hamilton.
+
+Checkpoint `bc873ea` incorporates the bounded TypedDict checker and independent
+C/F/E construction helpers. All 251 tests pass on Python 3.12; Ruff and full
+package/authoring mypy on Python 3.11 pass. These helpers do not admit their
+decorator families. The TypedDict checker preserves the existing union rules and
+rejects structural equivalence between distinct TypedDict declarations.
+
+P2's production capture gate additionally requires nested namespace role
+preservation, per-mount resolver counts, finite metadata copies, and disposal after
+both successful and failed construction. Its public configuration-predicate
+regression must close the reopened construction-diagnostic QA finding. Explicit
+public shutdown targets remapped to transformed acquisition nodes remain an E/P4
+activation requirement, separate from this bounded foundation gate.
