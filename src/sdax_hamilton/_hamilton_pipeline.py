@@ -9,12 +9,14 @@ import inspect
 from copy import copy
 from importlib import metadata
 from types import FunctionType, MethodType
-from typing import Any, Callable
+from typing import Any, Callable, get_type_hints
 
 import hamilton
 from hamilton.function_modifiers.configuration import ConfigResolver
 from hamilton.function_modifiers.dependencies import LiteralDependency, UpstreamDependency
 from hamilton.function_modifiers.macros import Applicable, does, pipe, pipe_input, pipe_output
+
+from ._types import accepts, compatible, validate_type
 
 _SUPPORTED_HAMILTON_VERSION = "1.90.0"
 _CORRECTION_MARKER = "__sdax_hamilton_async_output_pipeline_corrected__"
@@ -197,3 +199,122 @@ def snapshot_copied_macro_bindings(
                 modifier.transforms = tuple(
                     _copy_applicable(item, copy_helper) for item in modifier.transforms
                 )
+                for applicable in modifier.transforms:
+                    _install_selected_step_contract(applicable)
+
+
+def _function_contract(
+    callable_: Callable[..., Any], label: str
+) -> tuple[inspect.Signature, dict[str, Any] | None]:
+    """Read the bounded contract Hamilton reads for one direct helper callable."""
+    signature = inspect.signature(callable_)
+    if type(callable_) is not FunctionType:
+        # Hamilton accepts callable instances. Their implementation-defined type
+        # metadata is not a second annotation language for this frontend.
+        return signature, None
+    hints = get_type_hints(callable_, include_extras=True)
+    for parameter in signature.parameters.values():
+        if parameter.kind not in (
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        ):
+            raise TypeError(f"{label}.{parameter.name}: unsupported helper parameter kind")
+        if parameter.name not in hints:
+            raise TypeError(f"{label}.{parameter.name}: missing type")
+        validate_type(hints[parameter.name])
+        if parameter.default is not inspect.Parameter.empty and not accepts(
+            parameter.default, hints[parameter.name]
+        ):
+            raise TypeError(f"{label}.{parameter.name}: invalid default")
+    if "return" not in hints:
+        raise TypeError(f"{label}: missing return type")
+    validate_type(hints["return"])
+    return signature, hints
+
+
+def _ensure_compatible(produced: Any, required: Any, label: str) -> None:
+    if not compatible(produced, required):
+        raise TypeError(f"{label}: incompatible binding")
+
+
+def _validate_does_binding(fn: Callable[..., Any], modifier: does) -> None:
+    """Check the placeholder/replacement contract before Hamilton adds its wrapper."""
+    original_signature, original_hints = _function_contract(fn, fn.__name__)
+    if original_hints is None:
+        raise TypeError(f"{fn.__name__}: does declaration requires a plain function")
+    replacement = modifier.replacing_function
+    replacement_signature, replacement_hints = _function_contract(
+        replacement, f"{fn.__name__}: replacement"
+    )
+    original_values = {name: object() for name in original_signature.parameters}
+    try:
+        replacement_signature.bind(**does.map_kwargs(original_values, modifier.argument_mapping))
+    except TypeError as exc:
+        raise TypeError(f"{fn.__name__}: replacement binding is invalid") from exc
+    if replacement_hints is None:
+        return
+    _ensure_compatible(
+        replacement_hints["return"],
+        original_hints["return"],
+        f"{fn.__name__}: replacement return",
+    )
+    for replacement_name in replacement_signature.parameters:
+        original_name = modifier.argument_mapping.get(replacement_name, replacement_name)
+        if original_name not in original_hints:
+            continue
+        _ensure_compatible(
+            original_hints[original_name],
+            replacement_hints[replacement_name],
+            f"{fn.__name__}: replacement {replacement_name}",
+        )
+
+
+def _validate_bound_applicable(applicable: Applicable, literal_inputs: dict[str, Any]) -> None:
+    """Validate a selected step after Hamilton has bound its direct values."""
+    if not callable(applicable.fn):
+        raise TypeError("pipeline step requires a callable")
+    _, hints = _function_contract(applicable.fn, "pipeline step")
+    if hints is None:
+        return
+    for name, value in literal_inputs.items():
+        if not accepts(value, hints[name]):
+            raise TypeError(f"pipeline step.{name}: bound literal has wrong type")
+
+
+def _install_selected_step_contract(applicable: Applicable) -> None:
+    """Check only transforms Hamilton selected for this expansion path.
+
+    ``chain_transforms`` calls ``Applicable.bind_function_args`` only after its
+    configuration resolvers have selected the step. Delegating to the exact
+    class method preserves Hamilton's bind behavior and avoids a second selector
+    evaluation or a parallel chain interpreter.
+    """
+
+    def bind_function_args(self: Applicable, current_param: str | None):
+        upstream_inputs, literal_inputs = Applicable.bind_function_args(self, current_param)
+        _validate_bound_applicable(self, literal_inputs)
+        return upstream_inputs, literal_inputs
+
+    def namespaced(self: Applicable, namespace: Any) -> Applicable:
+        derived = Applicable.namespaced(self, namespace)
+        _install_selected_step_contract(derived)
+        return derived
+
+    applicable.bind_function_args = MethodType(bind_function_args, applicable)
+    # ``chain_transforms`` makes this exact derived object before it checks the
+    # resolver when a pipeline supplies a namespace. Carry the private bound-step
+    # hook onto it without changing Hamilton's class or unrelated instances.
+    applicable.namespaced = MethodType(namespaced, applicable)
+
+
+def validate_copied_macro_bindings(fn: Callable[..., Any]) -> None:
+    """Preflight exact copied C-family bindings before wrapper expansion.
+
+    Pipeline literal and default checks are installed on copied ``Applicable``
+    objects by ``snapshot_copied_macro_bindings``. They run only after Hamilton
+    selects a step for the active configuration path. This function handles the
+    ``does`` wrapper contract before its generated callable loses that identity.
+    """
+    for modifier in getattr(fn, "generate", ()):
+        if type(modifier) is does:
+            _validate_does_binding(fn, modifier)

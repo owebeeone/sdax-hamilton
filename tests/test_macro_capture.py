@@ -8,6 +8,7 @@ import pytest
 from sdax_hamilton._hamilton_pipeline import (
     correct_copied_async_output_pipelines,
     snapshot_copied_macro_bindings,
+    validate_copied_macro_bindings,
 )
 from sdax_hamilton._runtime import resolve
 from sdax_hamilton.hamilton_compat import _copy_function
@@ -264,3 +265,101 @@ def result(number: int) -> int:
 
     assert not inspect.iscoroutinefunction(entry.callable)
     assert await resolve(entry.callable(number=2)) == 3
+
+
+@pytest.mark.parametrize(
+    "source, name, message",
+    [
+        (
+            """
+from hamilton.function_modifiers import does
+def replacement(number: str) -> int:
+    return len(number)
+@does(replacement)
+def result(number: int) -> int:
+    pass
+""",
+            "result",
+            "replacement number: incompatible binding",
+        ),
+        (
+            """
+from hamilton.function_modifiers import does
+def replacement(number: int) -> str:
+    return str(number)
+@does(replacement)
+def result(number: int) -> int:
+    pass
+""",
+            "result",
+            "replacement return: incompatible binding",
+        ),
+    ],
+)
+def test_macro_preflight_rejects_hidden_binding_contract_errors(
+    module_factory, source, name, message
+):
+    module = module_factory(source)
+
+    with pytest.raises(TypeError, match=message):
+        validate_copied_macro_bindings(_snapshot(getattr(module, name)))
+
+
+def test_selected_pipeline_step_checks_captured_literals_once(module_factory):
+    module = module_factory("""
+from hamilton.function_modifiers import pipe_output, step, value
+def add(value: int, offset: int) -> int:
+    return value + offset
+@pipe_output(step(add, offset=value("wrong")).when(mode="unsafe"))
+def result(value: int) -> int:
+    return value
+""")
+    from hamilton.function_modifiers import base
+
+    snapshot = _snapshot(module.result)
+    assert [entry.name for entry in base.resolve_nodes(snapshot, {"mode": "safe"})] == ["result"]
+    with pytest.raises(TypeError, match="pipeline step.offset: bound literal has wrong type"):
+        base.resolve_nodes(snapshot, {"mode": "unsafe"})
+
+
+def test_mutually_exclusive_pipeline_steps_are_checked_only_on_the_selected_path(module_factory):
+    module = module_factory("""
+from hamilton.function_modifiers import pipe_output, step
+def number(value: int) -> int:
+    return value + 1
+def text(value: int) -> str:
+    return str(value)
+@pipe_output(step(number).when(mode="number"), step(text).when(mode="text"))
+def result(value: int) -> int:
+    return value
+""")
+    from hamilton.function_modifiers import base
+
+    snapshot = _snapshot(module.result)
+    number_nodes = base.resolve_nodes(snapshot, {"mode": "number"})
+    text_nodes = base.resolve_nodes(snapshot, {"mode": "text"})
+    assert number_nodes[-1].type is int
+    assert text_nodes[-1].type is str
+
+
+def test_macro_preflight_validates_replacement_and_step_defaults(module_factory):
+    module = module_factory("""
+from hamilton.function_modifiers import does, pipe_input, step
+def replacement(number: int, offset: int = "wrong") -> int:
+    return number
+@does(replacement)
+def replaced(number: int, offset: int = 1) -> int:
+    pass
+def add(value: int, offset: int = "wrong") -> int:
+    return value
+@pipe_input(step(add))
+def piped(value: int) -> int:
+    return value
+""")
+
+    with pytest.raises(TypeError, match="replacement.offset: invalid default"):
+        validate_copied_macro_bindings(_snapshot(module.replaced))
+    from hamilton.function_modifiers import base
+
+    with pytest.raises(TypeError, match="pipeline step.offset: invalid default"):
+        base.resolve_nodes(_snapshot(module.piped), {})

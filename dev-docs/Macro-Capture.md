@@ -18,6 +18,17 @@ by a helper function. A user mutation after construction therefore cannot
 redirect a copied source binding, replacement argument mapping, or plain helper
 function code/defaults.
 
+The preflight reads direct plain-function annotations for a `does` replacement
+before Hamilton's wrapper hides its contract. Each copied pipeline step checks
+its own literal/default bindings only when Hamilton has selected that step for
+the active configuration path; pipeline edge types remain the normal graph and
+original-requirement checks. Callable instances retain their identity and are
+accepted through Hamilton's signature shape check only; their `__call__`
+annotation metadata is not a second frontend contract language. The typed
+placeholder declaration remains the graph boundary and SDAX still checks its
+produced value at runtime. Inspecting a callable's signature is trusted
+declaration-construction work, not invocation of its body.
+
 The helper reconstructs Hamilton's four built-in per-step configuration selectors
 (`when`, `when_not`, `when_in`, `when_not_in`) from their finite captured mapping.
 It copies the selector's list/tuple/set metadata containers and preserves other
