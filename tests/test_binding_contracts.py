@@ -1,15 +1,230 @@
 """Original-consumer requirements stay checked through every binding path."""
 
-from typing import Any
+import inspect
+from typing import Any, get_type_hints
 
 import pytest
+from hamilton.function_modifiers import (
+    configuration,
+    group,
+    inject,
+    parameterize,
+    source,
+    value,
+)
 
-from sdax_hamilton._model import InputSpec, NodeSpec
+from sdax_hamilton._hamilton_bindings import capture_bindings, snapshot_binding_containers
+from sdax_hamilton._model import MISSING, InputSpec, NodeSpec
 from sdax_hamilton.plan import PreparedPlan
 
 
 def node(name, output_type, fn, inputs=()):
     return NodeSpec(name, fn, output_type, dict(inputs))
+
+
+def _capture(fn, modifier):
+    return capture_bindings(
+        fn,
+        modifier,
+        get_type_hints(fn, include_extras=True),
+        inspect.signature(fn).parameters,
+    )
+
+
+def test_binding_capture_preserves_merged_source_requirements_and_original_defaults():
+    def result(left: int, shared: int | str = 3) -> int:
+        return left
+
+    captured = _capture(result, inject(left=source("shared")))
+    binding = captured["result"]["shared"]
+
+    assert binding.requirements == (int, int | str)
+    assert binding.default == 3
+
+
+def test_binding_capture_completes_an_optional_rebound_source_default():
+    def result(value: int = 7) -> int:
+        return value
+
+    captured = _capture(result, inject(value=source("seed")))
+    binding = captured["result"]["seed"]
+
+    assert binding.requirements == (int,)
+    assert binding.default == 7
+
+
+def test_binding_capture_preserves_an_identical_merged_source_default():
+    def result(first: int = 3, second: int = 3) -> int:
+        return first + second
+
+    captured = _capture(
+        result,
+        inject(first=source("seed"), second=source("seed")),
+    )
+
+    assert captured["result"]["seed"].default == 3
+
+
+def test_binding_capture_requires_a_merged_source_when_any_consumer_is_required():
+    def result(first: int, second: int = 3) -> int:
+        return first + second
+
+    captured = _capture(
+        result,
+        inject(first=source("seed"), second=source("seed")),
+    )
+
+    assert captured["result"]["seed"].default is MISSING
+
+
+def test_binding_capture_ignores_optional_conflicts_when_a_later_consumer_is_required():
+    def result(first: int = 3, second: int = 4, *, required: int) -> int:
+        return first + second + required
+
+    captured = _capture(
+        result,
+        inject(
+            first=source("seed"),
+            second=source("seed"),
+            required=source("seed"),
+        ),
+    )
+
+    assert captured["result"]["seed"].requirements == (int, int, int)
+    assert captured["result"]["seed"].default is MISSING
+
+
+def test_binding_capture_rejects_conflicting_merged_source_defaults():
+    def result(first: int = 3, second: int = 4) -> int:
+        return first + second
+
+    with pytest.raises(ValueError, match="conflicting merged source defaults"):
+        _capture(
+            result,
+            inject(first=source("other"), second=source("other")),
+        )
+
+
+def test_binding_capture_uses_a_literal_bound_source_as_the_rebound_source_default():
+    def result(a: int = 1, b: int = 2) -> int:
+        return a + b
+
+    captured = _capture(result, inject(a=source("b"), b=value(9)))
+    binding = captured["result"]["b"]
+
+    assert binding.requirements == (int,)
+    assert binding.default == 9
+
+
+@pytest.mark.asyncio
+async def test_stock_optional_source_rebinding_requires_a_source_value(hamilton_oracle):
+    source_text = """
+from hamilton.function_modifiers import inject, source
+
+@inject(value=source("seed"))
+def result(value: int = 7) -> int:
+    return value
+"""
+    oracle = hamilton_oracle(source_text)
+
+    with pytest.raises(KeyError, match="seed"):
+        oracle.execute(["result"])
+    assert oracle.execute(["result"], inputs={"seed": 4}) == {"result": 4}
+
+
+def test_stock_literal_bound_source_uses_its_literal_before_the_rebound_default(hamilton_oracle):
+    source_text = """
+from hamilton.function_modifiers import inject, source, value
+
+@inject(a=source("b"), b=value(9))
+def result(a: int = 1, b: int = 2) -> int:
+    return a + b
+"""
+    oracle = hamilton_oracle(source_text)
+
+    assert oracle.execute(["result"]) == {"result": 18}
+    assert oracle.execute(["result"], inputs={"b": 5}) == {"result": 14}
+
+
+def test_binding_capture_admits_direct_group_values_and_source_defaults():
+    def result(seed: int = 3, values: list[int] = []) -> int:
+        return seed + sum(values)
+
+    captured = _capture(result, inject(values=group(source("seed"), value(2))))
+    binding = captured["result"]["seed"]
+
+    assert binding.requirements == (int, int)
+    assert binding.default == 3
+
+
+def test_binding_capture_tracks_parameterize_extract_columns_outputs():
+    from hamilton.function_modifiers import ParameterizedExtract, parameterize_extract_columns
+
+    def columns(number: int, seed: int = 3) -> object:
+        return number + seed
+
+    modifier = parameterize_extract_columns(
+        ParameterizedExtract(("number",), {"number": source("seed")})
+    )
+    captured = _capture(columns, modifier)
+
+    assert set(captured) == {"columns__0"}
+    assert captured["columns__0"]["seed"].requirements == (int, int)
+    assert captured["columns__0"]["seed"].default == 3
+
+
+def _invalid_config_group():
+    values = group(source("seed"))
+    values.sources.append(configuration("unsafe"))
+    return inject(values=values)
+
+
+@pytest.mark.parametrize(
+    "modifier, message",
+    (
+        (inject(values=group(value("wrong"))), "bound literal"),
+        (_invalid_config_group(), "direct source/value"),
+    ),
+)
+def test_binding_capture_rejects_unsafe_group_neighbors(modifier, message):
+    def result(values: list[int]) -> int:
+        return sum(values)
+
+    with pytest.raises((TypeError, ValueError), match=message):
+        _capture(result, modifier)
+
+
+def test_binding_snapshot_copies_group_dependencies_but_preserves_literal_payload_identity():
+    def result(values: list[object]) -> int:
+        return len(values)
+
+    source_dependency = source("seed")
+    payload = {"identity": "kept"}
+    modifier = inject(values=group(source_dependency, value(payload)))
+
+    snapshot_binding_containers(modifier)
+    source_dependency.source = "changed_after_snapshot"
+    grouped = modifier.parameterization[parameterize.PLACEHOLDER_PARAM_NAME]["values"]
+
+    assert grouped.sources[1].value is payload
+    assert set(_capture(result, modifier)["result"]) == {"seed"}
+
+
+def test_parameterize_extract_snapshot_copies_its_direct_source_mapping():
+    from hamilton.function_modifiers import ParameterizedExtract, parameterize_extract_columns
+
+    def columns(number: int) -> object:
+        return number
+
+    source_dependency = source("seed")
+    modifier = parameterize_extract_columns(
+        ParameterizedExtract(("number",), {"number": source_dependency})
+    )
+
+    snapshot_binding_containers(modifier)
+    source_dependency.source = "changed_after_snapshot"
+
+    assert set(_capture(columns, modifier)["columns__0"]) == {"seed"}
 
 
 def leaves(error):
