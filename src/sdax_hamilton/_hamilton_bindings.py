@@ -25,6 +25,7 @@ from hamilton.function_modifiers.expanders import (
 )
 
 from ._model import MISSING, InputSpec
+from ._optional_profiles import identify_optional_modifier
 from ._types import accepts, validate_type
 
 _INTERNAL_INPUTS = frozenset(
@@ -49,6 +50,15 @@ _PARAMETERIZE_TYPES = frozenset(
 )
 
 
+def is_parameterize_extract(modifier: Any) -> bool:
+    """Admit the exact optional frame decorator through its pinned PEX contract."""
+    return type(modifier) is parameterize_extract_columns or (
+        type(modifier).__module__
+        == "hamilton.experimental.decorators.parameterize_frame"
+        and identify_optional_modifier(modifier) == "pandas"
+    )
+
+
 def capture_bindings(
     fn: Any,
     modifier: Any,
@@ -61,7 +71,7 @@ def capture_bindings(
         for output, bindings in modifier.parameterization.items():
             name = fn.__name__ if output == parameterize.PLACEHOLDER_PARAM_NAME else output
             mappings[name] = bindings
-    elif type(modifier) is parameterize_extract_columns:
+    elif is_parameterize_extract(modifier):
         mappings = {}
         for index, extract in enumerate(modifier.extract_config):
             if type(extract) is not ParameterizedExtract:
@@ -84,7 +94,7 @@ def snapshot_binding_containers(modifier: Any) -> None:
             output: _snapshot_binding_map(bindings)
             for output, bindings in modifier.parameterization.items()
         }
-    elif type(modifier) is parameterize_extract_columns:
+    elif is_parameterize_extract(modifier):
         if type(modifier.extract_config) is not tuple:
             raise ValueError("parameterize_extract_columns bindings must be a tuple")
         extracts = []
