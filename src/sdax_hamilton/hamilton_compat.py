@@ -27,7 +27,7 @@ from hamilton.function_modifiers import (
     tag,
     tag_outputs,
 )
-from hamilton.function_modifiers.dependencies import LiteralDependency, UpstreamDependency
+from hamilton.function_modifiers.delayed import resolve, resolve_from_config
 from hamilton.function_modifiers.metadata import RayRemote, SchemaOutput, cache
 from hamilton.graph_utils import find_functions
 from hamilton.lifecycle.base import LifecycleAdapterSet
@@ -38,7 +38,9 @@ from ._hamilton_provenance import (  # noqa: F401 -- retained private compatibil
     _copy_function,
     _ProvenanceCapture,
 )
+from ._hamilton_validation import normalize_validation_annotation
 from ._model import MISSING, InputSpec, NodeSpec
+from ._optional_profiles import identify_optional_modifier, validate_optional_profile
 from ._types import accepts, compatible, validate_type
 from .declarations import Acquisition, Policy
 
@@ -59,15 +61,6 @@ _SUPPORTED = (
     SchemaOutput,
     cache,
     RayRemote,
-)
-_PARAMETERIZE_INTERNAL_INPUTS = frozenset(
-    (
-        "upstream_dependencies",
-        "literal_dependencies",
-        "grouped_list_dependencies",
-        "grouped_dict_dependencies",
-        "former_inputs",
-    )
 )
 
 
@@ -108,47 +101,6 @@ def _excluded(fn):
     return any(type(modifier) is _EXCLUDED for modifier in _decorators(fn))
 
 
-
-
-
-def _validate_bindings(fn, modifier, hints, parameters):
-    for output, bindings in modifier.parameterization.items():
-        requirements: dict[str, list[tuple[Any, bool]]] = {}
-        for name, binding in bindings.items():
-            if name not in parameters:
-                raise ValueError(f"{fn.__name__}: unknown bound parameter {name}")
-            if type(binding) is LiteralDependency:
-                if not accepts(binding.value, hints[name]):
-                    raise TypeError(f"{fn.__name__}.{name}: bound literal has wrong type")
-            elif type(binding) is UpstreamDependency:
-                if not isinstance(binding.source, str) or not binding.source:
-                    raise ValueError(f"{fn.__name__}.{name}: source must name a node")
-                if parameters[name].default is not inspect.Parameter.empty:
-                    raise ValueError(f"{fn.__name__}.{name}: optional source rebinding unsupported")
-                requirements.setdefault(binding.source, []).append((hints[name], False))
-            else:
-                raise ValueError(f"{fn.__name__}.{name}: grouped/config binding unsupported")
-        for name in parameters:
-            if name not in bindings:
-                optional = parameters[name].default is not inspect.Parameter.empty
-                requirements.setdefault(name, []).append((hints[name], optional))
-        if _PARAMETERIZE_INTERNAL_INPUTS.intersection(requirements):
-            raise ValueError(
-                f"{fn.__name__}/{output}: binding collides with Hamilton wrapper parameter"
-            )
-        # Hamilton merges repeated sources into one input. Do not lose any of
-        # the original parameter contracts at that merge boundary.
-        for contracts in requirements.values():
-            if any(typ != contracts[0][0] for typ, _ in contracts):
-                raise TypeError(
-                    f"{fn.__name__}/{output}: merged source has different parameter types"
-                )
-            if len(contracts) > 1 and any(optional for _, optional in contracts):
-                raise ValueError(
-                    f"{fn.__name__}/{output}: merged source has optional parameter contract"
-                )
-
-
 def _validate_declaration(fn, supported=_SUPPORTED):
     if _excluded(fn):
         return
@@ -156,6 +108,18 @@ def _validate_declaration(fn, supported=_SUPPORTED):
         raise TypeError(f"{fn.__name__}: generator and async-generator functions unsupported")
     hints = get_type_hints(fn, include_extras=True)
     parameters = inspect.signature(fn).parameters
+    modifiers = _decorators(fn)
+    validation_profiles = [
+        profile
+        for modifier in modifiers
+        if type(modifier) in supported
+        and (profile := identify_optional_modifier(modifier)) in ("pydantic", "pandera")
+    ]
+    if len(validation_profiles) > 1:
+        raise ValueError(f"{fn.__name__}: multiple optional validation profiles unsupported")
+    validation_profile = validation_profiles[0] if validation_profiles else None
+    if validation_profile is not None:
+        validate_optional_profile(validation_profile)
     for name, parameter in parameters.items():
         if parameter.kind not in (parameter.POSITIONAL_OR_KEYWORD, parameter.KEYWORD_ONLY):
             raise TypeError(f"{fn.__name__}: variadic and positional-only parameters unsupported")
@@ -168,14 +132,19 @@ def _validate_declaration(fn, supported=_SUPPORTED):
             raise TypeError(f"{fn.__name__}.{name}: invalid default")
     if "return" not in hints:
         raise TypeError(f"{fn.__name__}: missing return type")
-    validate_type(hints["return"])
-    for modifier in _decorators(fn):
+    has_delayed_modifier = any(
+        type(modifier) in (resolve, resolve_from_config) and type(modifier) in supported
+        for modifier in modifiers
+    )
+    # A delayed validator can supply the runtime representation of a schema
+    # annotation. Every generated output is checked after that one resolution.
+    if not has_delayed_modifier:
+        validate_type(normalize_validation_annotation(hints["return"], validation_profile))
+    for modifier in modifiers:
         if type(modifier) not in supported:
             raise ValueError(
                 f"{fn.__name__}: unsupported Hamilton decorator {type(modifier).__name__}"
             )
-        if isinstance(modifier, parameterize):
-            _validate_bindings(fn, modifier, hints, parameters)
 
 
 def _declaration_closure(declarations, supported):

@@ -2,6 +2,7 @@
 
 import logging
 import os
+from functools import partial
 from typing import Any, get_args, get_origin
 
 import pytest
@@ -9,7 +10,8 @@ from hamilton import driver as hamilton_driver
 from hamilton import node
 from hamilton.data_quality.base import DataValidationError
 
-from sdax_hamilton import Driver
+from sdax_hamilton import Driver, hamilton_compat
+from sdax_hamilton import driver as driver_module
 from sdax_hamilton._hamilton_validation import (
     correct_validation_gate,
     correct_validation_representation,
@@ -17,6 +19,26 @@ from sdax_hamilton._hamilton_validation import (
 )
 
 _PROFILE_VARIABLE = "SDAX_HAMILTON_TEST_PROFILE"
+
+
+@pytest.fixture(autouse=True)
+def _provisional_v_admission(monkeypatch):
+    """Exercise production profile dispatch while the public QC gate is closed."""
+    profile = os.environ.get(_PROFILE_VARIABLE)
+    if profile == "pydantic":
+        from hamilton.plugins.h_pydantic import check_output
+    elif profile == "pandera":
+        from hamilton.plugins.h_pandera import check_output
+    else:
+        return
+    monkeypatch.setattr(
+        driver_module,
+        "compile_modules",
+        partial(
+            hamilton_compat.compile_modules,
+            _supported=(*hamilton_compat._SUPPORTED, check_output),
+        ),
+    )
 
 
 def require_profile(expected):

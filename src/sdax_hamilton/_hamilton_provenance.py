@@ -5,17 +5,24 @@ because they share construction-only identity tables. Revisit this boundary when
 those responsibilities can separate without duplicating state.
 """
 
+import inspect
 from collections.abc import Callable, Collection, Mapping
 from copy import copy
 from dataclasses import dataclass, field, replace
 from types import FunctionType, MappingProxyType, MethodType
-from typing import Any
+from typing import Any, get_type_hints
 
 from hamilton import node
-from hamilton.function_modifiers import base, parameterize, parameterized_subdag
+from hamilton.function_modifiers import base, parameterized_subdag
 from hamilton.function_modifiers.adapters import LoadFromDecorator
 from hamilton.function_modifiers.delayed import resolve, resolve_from_config
-from hamilton.function_modifiers.expanders import extract_fields
+from hamilton.function_modifiers.expanders import (
+    extract_columns,
+    extract_fields,
+    parameterize,
+    parameterize_extract_columns,
+    unpack_fields,
+)
 from hamilton.function_modifiers.macros import (
     does,
     dynamic_transform,
@@ -32,6 +39,11 @@ from hamilton.function_modifiers.validation import (
 )
 
 from ._construction import wrap_lifecycle
+from ._hamilton_bindings import (
+    _PARAMETERIZE_TYPES,
+    capture_bindings,
+    snapshot_binding_containers,
+)
 from ._hamilton_loader import install_load_from_correction
 from ._hamilton_pipeline import (
     correct_copied_async_output_pipeline,
@@ -47,6 +59,7 @@ from ._hamilton_validation import (
     correct_validation_representation,
 )
 from ._model import GeneratedRole, InputSpec
+from ._optional_profiles import identify_optional_modifier, validate_optional_profile
 
 _LIFECYCLES = (
     base.NodeResolver,
@@ -196,13 +209,112 @@ class _ProvenanceCapture:
         self._installed_methods.append((instance, name, name in state, state.get(name)))
         setattr(instance, name, method)
 
-    def _instrument_extract_fields(
-        self, modifier: extract_fields, declaration: Callable[..., Any]
+    def _instrument_bindings(
+        self, modifier: Any, declaration: Callable[..., Any]
+    ) -> None:
+        """Capture source contracts before Hamilton rewrites a bound callable."""
+        snapshot_binding_containers(modifier)
+        contracts = capture_bindings(
+            declaration,
+            modifier,
+            get_type_hints(declaration, include_extras=True),
+            inspect.signature(declaration).parameters,
+        )
+        expand = modifier.expand_node
+
+        def contracts_for_entry(
+            entry: node.Node,
+        ) -> Mapping[str, Mapping[str, InputSpec]]:
+            if type(modifier) in _PARAMETERIZE_TYPES:
+                names = {
+                    (
+                        entry.name
+                        if output == parameterize.PLACEHOLDER_PARAM_NAME
+                        else output
+                    ): (
+                        declaration.__name__
+                        if output == parameterize.PLACEHOLDER_PARAM_NAME
+                        else output
+                    )
+                    for output in modifier.parameterization
+                }
+            elif type(modifier) is parameterize_extract_columns:
+                names = {
+                    f"{entry.name}__{index}": f"{declaration.__name__}__{index}"
+                    for index, _ in enumerate(modifier.extract_config)
+                }
+            else:
+                raise AssertionError("Unexpected binding modifier")
+            if set(names.values()) != contracts.keys():
+                raise AssertionError("Captured binding outputs changed before expansion")
+            if len(names) != len(contracts):
+                raise AssertionError("Hamilton binding outputs collide after resolution")
+            return MappingProxyType(
+                {generated: contracts[captured] for generated, captured in names.items()}
+            )
+
+        def expand_with_capture(
+            instance: Any,
+            entry: node.Node,
+            configuration: dict[str, Any],
+            fn: Callable[..., Any],
+        ) -> list[node.Node]:
+            incoming = self._fact_from_callable(entry)
+            if incoming is None:
+                incoming = _CapturedFact(
+                    GeneratedRole.VALUE,
+                    declaration,
+                    True,
+                    False,
+                    entry.name,
+                    self._mount()[0],
+                )
+            generated = list(expand(entry, configuration, fn))
+            by_name = {generated_entry.name: generated_entry for generated_entry in generated}
+            if len(by_name) != len(generated):
+                raise AssertionError("Hamilton binding expansion generated duplicate names")
+            entry_contracts = contracts_for_entry(entry)
+            missing = entry_contracts.keys() - by_name.keys()
+            if missing:
+                raise AssertionError(
+                    f"Hamilton binding expansion lost captured outputs: {sorted(missing)}"
+                )
+            for name, generated_entry in by_name.items():
+                captured = entry_contracts.get(name)
+                if captured is None:
+                    self._remember(
+                        generated_entry,
+                        GeneratedRole.PROJECTION,
+                        incoming.declaration,
+                        actual_call=False,
+                    )
+                    continue
+                self._remember(
+                    generated_entry,
+                    incoming.role,
+                    incoming.declaration,
+                    actual_call=incoming.actual_call,
+                    borrows=incoming.borrows,
+                    public_name=generated_entry.name,
+                    input_contracts=captured,
+                )
+            return generated
+
+        self._install_method(
+            modifier,
+            "expand_node",
+            MethodType(expand_with_capture, modifier),
+        )
+
+    def _instrument_extraction(
+        self,
+        modifier: extract_fields | extract_columns | unpack_fields,
+        declaration: Callable[..., Any],
     ) -> None:
         transform = modifier.transform_node
 
         def transform_with_capture(
-            instance: extract_fields,
+            instance: extract_fields | extract_columns | unpack_fields,
             entry: node.Node,
             configuration: dict[str, Any],
             fn: Callable[..., Any],
@@ -619,10 +731,16 @@ class _ProvenanceCapture:
     def _instrument_modifier(
         self, snapshot: base.NodeTransformLifecycle, declaration: Callable[..., Any]
     ) -> base.NodeTransformLifecycle:
-        if type(snapshot) is parameterized_subdag:
+        optional_profile = identify_optional_modifier(snapshot)
+        if optional_profile in ("pydantic", "pandera"):
+            validate_optional_profile(optional_profile)
+            self._instrument_validation(snapshot, declaration, profile=optional_profile)
+        elif type(snapshot) is parameterized_subdag:
             self._instrument_parameterized_subdag(snapshot, declaration)
-        elif type(snapshot) is extract_fields:
-            self._instrument_extract_fields(snapshot, declaration)
+        elif type(snapshot) in _PARAMETERIZE_TYPES or type(snapshot) is parameterize_extract_columns:
+            self._instrument_bindings(snapshot, declaration)
+        elif type(snapshot) in (extract_fields, extract_columns, unpack_fields):
+            self._instrument_extraction(snapshot, declaration)
         elif type(snapshot) in (resolve, resolve_from_config):
             self._instrument_resolver(snapshot, declaration)
         elif type(snapshot) in (check_output, check_output_custom):
@@ -755,11 +873,6 @@ def _copy_function(fn: Callable[..., Any]) -> FunctionType:
             modifiers = []
             for modifier in getattr(fn, key):
                 snapshot = copy(modifier)
-                if isinstance(modifier, parameterize):
-                    snapshot.parameterization = {
-                        output: {name: copy(binding) for name, binding in bindings.items()}
-                        for output, bindings in modifier.parameterization.items()
-                    }
                 modifiers.append(snapshot)
             setattr(clone, key, modifiers)
     clone.__module__ = fn.__module__

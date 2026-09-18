@@ -202,3 +202,13 @@ CI now isolates five optional profiles on Python 3.12 using pinned test extras.
 The Spark job installs a full Java 21 runtime and keeps its Pandas 2 environment
 separate from the Pandas/Pandera 3 profiles. These jobs provision qualification;
 their presence does not certify unintegrated family implementations.
+
+Checkpoint `f676988` integrates the reviewed E/V implementation. The following
+integration supplies permanent optional-validator dispatch and return-only
+representation validation; the temporary fixtures vary only the existing private
+class-admission tuple. They no longer substitute compiler or lifecycle code.
+Both reviewers approve this narrow wiring. Python 3.12 qualification: 357 base
+tests pass, 15 opt-in cases/modules skip; the explicit Pydantic profile passes 8
+cases and Pandera passes 6, skipping only cases for the other selected profile.
+Lint, package/authoring mypy and diff checks pass. Public QB/QC admission remains
+closed, and all provisional fixtures must be removed at those gates.

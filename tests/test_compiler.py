@@ -102,38 +102,10 @@ def result(x: int) -> int:
         ),
         (
             """from hamilton.function_modifiers import inject, source
-@inject(x=source("y"))
-def result(x: int = 1) -> int:
-    return x""",
-            "optional source rebinding",
-        ),
-        (
-            """from hamilton.function_modifiers import inject, source
-@inject(x=source("y"))
-def result(x: str, y: int) -> str:
-    return x""",
-            "merged source",
-        ),
-        (
-            """from hamilton.function_modifiers import inject, source
-@inject(x=source("y"))
-def result(x: int, y: int = 2) -> int:
-    return x + y""",
-            "merged source has optional",
-        ),
-        (
-            """from hamilton.function_modifiers import inject, source
 @inject(x=source("former_inputs"))
 def result(x: int) -> int:
     return x""",
             "collides with Hamilton wrapper",
-        ),
-        (
-            """from hamilton.function_modifiers import inject, group, source
-@inject(x=group(source("y")))
-def result(x: list[int]) -> int:
-    return 1""",
-            "grouped/config",
         ),
         (
             """from hamilton.function_modifiers import extract_fields
