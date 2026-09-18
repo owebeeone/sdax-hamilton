@@ -27,6 +27,7 @@ from hamilton.function_modifiers import (
     tag,
     tag_outputs,
 )
+from hamilton.function_modifiers.delayed import resolve, resolve_from_config
 from hamilton.function_modifiers.metadata import RayRemote, SchemaOutput, cache
 from hamilton.graph_utils import find_functions
 from hamilton.lifecycle.base import LifecycleAdapterSet
@@ -131,7 +132,14 @@ def _validate_declaration(fn, supported=_SUPPORTED):
             raise TypeError(f"{fn.__name__}.{name}: invalid default")
     if "return" not in hints:
         raise TypeError(f"{fn.__name__}: missing return type")
-    validate_type(normalize_validation_annotation(hints["return"], validation_profile))
+    has_delayed_modifier = any(
+        type(modifier) in (resolve, resolve_from_config) and type(modifier) in supported
+        for modifier in modifiers
+    )
+    # A delayed validator can supply the runtime representation of a schema
+    # annotation. Every generated output is checked after that one resolution.
+    if not has_delayed_modifier:
+        validate_type(normalize_validation_annotation(hints["return"], validation_profile))
     for modifier in modifiers:
         if type(modifier) not in supported:
             raise ValueError(
