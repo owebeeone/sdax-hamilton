@@ -7,8 +7,8 @@ those responsibilities can separate without duplicating state.
 
 from collections.abc import Callable, Collection, Mapping
 from copy import copy
-from dataclasses import dataclass
-from types import FunctionType, MethodType
+from dataclasses import dataclass, field, replace
+from types import FunctionType, MappingProxyType, MethodType
 from typing import Any
 
 from hamilton import node
@@ -42,7 +42,7 @@ from ._hamilton_pipeline import (
     validate_copied_macro_modifier,
 )
 from ._hamilton_validation import correct_validation_gate
-from ._model import GeneratedRole
+from ._model import GeneratedRole, InputSpec
 
 _LIFECYCLES = (
     base.NodeResolver,
@@ -61,6 +61,9 @@ class _CapturedFact:
     borrows: bool
     public_name: str
     mount: object
+    input_contracts: Mapping[str, InputSpec] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
 
 
 class _ProvenanceCapture:
@@ -95,9 +98,16 @@ class _ProvenanceCapture:
         actual_call: bool,
         borrows: bool | None = None,
         public_name: str | None = None,
+        input_contracts: Mapping[str, InputSpec] | None = None,
     ) -> None:
         mount, _ = self._mount()
         callable_ = entry.callable
+        contracts = MappingProxyType(dict(input_contracts or {}))
+        unknown = contracts.keys() - entry.input_types.keys()
+        if unknown:
+            raise AssertionError(
+                f"Captured contracts are not inputs of {entry.name}: {sorted(unknown)}"
+            )
         self._pending[(mount, id(callable_))] = (
             callable_,
             _CapturedFact(
@@ -116,6 +126,7 @@ class _ProvenanceCapture:
                 ),
                 public_name=entry.name if public_name is None else public_name,
                 mount=mount,
+                input_contracts=contracts,
             ),
         )
 
@@ -124,7 +135,27 @@ class _ProvenanceCapture:
         entry: node.Node,
         mount: object,
         fact: _CapturedFact,
+        *,
+        before: node.Node | None = None,
     ) -> None:
+        contracts = fact.input_contracts
+        if contracts:
+            if before is None:
+                raise AssertionError("Captured contract handoff requires its source node")
+            before_inputs = tuple(before.input_types)
+            after_inputs = tuple(entry.input_types)
+            if len(before_inputs) != len(after_inputs):
+                raise AssertionError("Subdag namespace operation changed captured inputs")
+            # Hamilton 1.90 add_namespace preserves dependency order and contracts.
+            # Distinct contracts detect reordering here; same-typed edges remain
+            # guarded by the exact-version boundary and its pinned implementation.
+            if tuple(before.input_types.values()) != tuple(entry.input_types.values()):
+                raise AssertionError("Subdag namespace operation reordered captured inputs")
+            renames = dict(zip(before_inputs, after_inputs, strict=True))
+            contracts = MappingProxyType(
+                {renames[name]: contract for name, contract in contracts.items()}
+            )
+            fact = replace(fact, input_contracts=contracts)
         callable_ = entry.callable
         self._pending[(mount, id(callable_))] = (callable_, fact)
 
@@ -173,21 +204,30 @@ class _ProvenanceCapture:
             fn: Callable[..., Any],
         ) -> list[node.Node]:
             incoming = self._fact_from_callable(entry)
-            actual_call = True if incoming is None else incoming.actual_call
-            public_name = entry.name if incoming is None else incoming.public_name
+            if incoming is None:
+                incoming = _CapturedFact(
+                    GeneratedRole.VALUE,
+                    declaration,
+                    True,
+                    False,
+                    entry.name,
+                    self._mount()[0],
+                )
             generated = list(transform(entry, configuration, fn))
             self._remember(
                 generated[0],
-                GeneratedRole.VALUE,
-                declaration,
-                actual_call=actual_call,
-                public_name=public_name,
+                incoming.role,
+                incoming.declaration,
+                actual_call=incoming.actual_call,
+                borrows=incoming.borrows,
+                public_name=incoming.public_name,
+                input_contracts=incoming.input_contracts,
             )
             for projection in generated[1:]:
                 self._remember(
                     projection,
                     GeneratedRole.PROJECTION,
-                    declaration,
+                    incoming.declaration,
                     actual_call=False,
                 )
             return generated
@@ -212,6 +252,7 @@ class _ProvenanceCapture:
             incoming = self._fact_from_callable(entry)
             actual_call = True if incoming is None else incoming.actual_call
             public_name = entry.name if incoming is None else incoming.public_name
+            captured_declaration = declaration if incoming is None else incoming.declaration
             generated = list(
                 correct_validation_gate(transform(entry, configuration, fn))
             )
@@ -219,22 +260,25 @@ class _ProvenanceCapture:
                 self._remember(
                     evidence,
                     GeneratedRole.VALIDATION_EVIDENCE,
-                    declaration,
+                    captured_declaration,
                     actual_call=False,
                 )
             self._remember(
                 generated[-2],
                 GeneratedRole.VALIDATION_GATE,
-                declaration,
+                captured_declaration,
                 actual_call=False,
                 public_name=public_name,
             )
             self._remember(
                 generated[-1],
                 GeneratedRole.VALIDATION_RAW,
-                declaration,
+                captured_declaration,
                 actual_call=actual_call,
                 public_name=public_name,
+                input_contracts=(
+                    MappingProxyType({}) if incoming is None else incoming.input_contracts
+                ),
             )
             return generated
 
@@ -394,6 +438,7 @@ class _ProvenanceCapture:
                 actual_call=incoming.actual_call,
                 borrows=incoming.borrows,
                 public_name=incoming.public_name,
+                input_contracts=incoming.input_contracts,
             )
             step_facts = selected[selected_start:]
             if len(generated[1:-1]) != len(step_facts):
@@ -506,6 +551,7 @@ class _ProvenanceCapture:
                             after,
                             parent_mount,
                             self._fact_before_namespace(before),
+                            before=before,
                         )
                     return generated
 

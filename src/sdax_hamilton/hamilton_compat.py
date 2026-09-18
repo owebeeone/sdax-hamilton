@@ -309,14 +309,40 @@ def _actual_targets(target, owner, root, entries, facts, label):
     return frozenset(result)
 
 
-def _lower_inputs(entry: node.Node) -> Mapping[str, InputSpec]:
+def _lower_inputs(
+    entry: node.Node,
+    captured: Mapping[str, InputSpec] = MappingProxyType({}),
+) -> Mapping[str, InputSpec]:
+    unknown = captured.keys() - entry.input_types.keys()
+    if unknown:
+        raise AssertionError(
+            f"Captured contracts are not final inputs of {entry.name}: {sorted(unknown)}"
+        )
     inputs = {}
     for name, (typ, dependency_type) in entry.input_types.items():
         validate_type(typ)
-        default = entry.default_parameter_values.get(name, MISSING)
-        if dependency_type is node.DependencyType.OPTIONAL and default is MISSING:
-            raise ValueError(f"{entry.name}.{name}: transformed optional default unavailable")
-        inputs[name] = InputSpec(typ, default)
+        contract = captured.get(name)
+        if contract is None:
+            default = entry.default_parameter_values.get(name, MISSING)
+            if dependency_type is node.DependencyType.OPTIONAL and default is MISSING:
+                raise ValueError(
+                    f"{entry.name}.{name}: transformed optional default unavailable"
+                )
+            inputs[name] = InputSpec(typ, default)
+            continue
+        requirements = contract.effective_requirements
+        for requirement in requirements:
+            validate_type(requirement)
+        default = (
+            contract.default
+            if dependency_type is node.DependencyType.OPTIONAL
+            else MISSING
+        )
+        if default is not MISSING and not all(
+            accepts(default, requirement) for requirement in requirements
+        ):
+            raise TypeError(f"{entry.name}.{name}: captured default has wrong type")
+        inputs[name] = InputSpec(typ, default, requirements)
     return MappingProxyType(inputs)
 
 
@@ -379,9 +405,11 @@ def compile_modules(modules, configuration, *, _supported=_SUPPORTED):
                     f"{declaration.__module__}.{declaration.__qualname__}"
                     for declaration in undiscovered
                 )
-                raise ValueError(f"generated declarations were not discovered: {undiscovered_names}")
-            names = {entry.name for entry in expanded}
-            if len(names) != len(expanded):
+                raise ValueError(
+                    f"generated declarations were not discovered: {undiscovered_names}"
+                )
+            generated_names = {entry.name for entry in expanded}
+            if len(generated_names) != len(expanded):
                 raise ValueError(f"{fn.__name__}: duplicate generated Hamilton node")
             owners = {
                 fact.declaration
@@ -444,7 +472,7 @@ def compile_modules(modules, configuration, *, _supported=_SUPPORTED):
                 name=name,
                 fn=entry.callable,
                 output_type=entry.type,
-                inputs=_lower_inputs(entry),
+                inputs=_lower_inputs(entry, fact.input_contracts),
                 tags=entry.tags,
                 policy=policies.get(name, Policy()),
                 release=release,
