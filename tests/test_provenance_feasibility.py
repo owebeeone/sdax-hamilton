@@ -511,9 +511,6 @@ async def test_production_capture_preserves_mounted_roles_once(
     }
     resolve_nodes = base.resolve_nodes
 
-    with pytest.raises(ValueError, match="unsupported Hamilton decorator parameterized_subdag"):
-        Driver(mounted, config=configuration)
-
     specs, capture_refs = _compile_with_capture_observer(monkeypatch, mounted, configuration)
     assert Counter(resolver_calls) == Counter({1: 1, 3: 1})
 
@@ -720,6 +717,7 @@ from sdax_hamilton import execution
 
 class Helper:
     __name__ = "helper"
+    __globals__ = globals()
     __annotations__ = {"value": int, "return": int}
 
     def __call__(self, value: int) -> int:
@@ -755,6 +753,7 @@ from sdax_hamilton import execution
 
 class Helper:
     __name__ = "helper"
+    __globals__ = globals()
     __annotations__ = {"value": int, "return": int}
 
     def __call__(self, value: int) -> int:
@@ -847,7 +846,10 @@ def test_delayed_subdag_rejects_hidden_unsupported_modifier_before_expansion(
         """
 from hamilton.function_modifiers import extract_fields
 
-@extract_fields({"number": int})
+class UnknownExtraction(extract_fields):
+    pass
+
+@UnknownExtraction({"number": int})
 def hidden() -> dict[str, int]:
     return {"number": 1}
 """
@@ -869,7 +871,7 @@ def result(hidden: dict[str, int]) -> dict[str, int]:
         resolver_calls=resolver_calls,
     )
 
-    with pytest.raises(ValueError, match="hidden: unsupported Hamilton decorator extract_fields"):
+    with pytest.raises(ValueError, match="hidden: unsupported Hamilton decorator UnknownExtraction"):
         hamilton_compat.compile_modules(
             (root,),
             {settings.ENABLE_POWER_USER_MODE: True},

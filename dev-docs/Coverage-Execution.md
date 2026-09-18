@@ -212,3 +212,24 @@ tests pass, 15 opt-in cases/modules skip; the explicit Pydantic profile passes 8
 cases and Pandera passes 6, skipping only cases for the other selected profile.
 Lint, package/authoring mypy and diff checks pass. Public QB/QC admission remains
 closed, and all provisional fixtures must be removed at those gates.
+
+## Consolidated implementation checkpoint
+
+The user requested that review cycles stop until code completion after the
+parallel review/synchronization work consumed too much quota. Review agents are
+paused. Root is integrating completed drafts directly, running focused regression
+tests and preparing one consolidated final review rather than per-lane refreezes.
+
+Built-in binding, extraction, pipeline, subgraph, resolver/model, validation and
+I/O families are now admitted by the public Driver. The temporary B/C/E/F and
+optional-profile admission fixtures are removed; their tests exercise ordinary
+public construction. The integrated base suite passes 426 tests on Python 3.11
+and 3.12. Python 3.13 exposed two test fixtures that lacked the upstream-required
+`__globals__` callable attribute; the corrected callable-instance rejection cases
+pass without production changes. Source lint and package/authoring typing pass.
+
+Explicit Python 3.12 profile runs pass Pandas 5, Polars 7, Pydantic 9 and Pandera
+10 cases; skips are for nonselected profiles, not unimplemented cases within the
+selected suite. Those runs include real public Driver execution. Spark production
+wiring remains the final implementation lane. Final artifact checks and the
+consolidated review are still pending; no release or push is authorized here.

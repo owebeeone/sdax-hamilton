@@ -14,17 +14,37 @@ import hamilton
 from hamilton import graph, node
 from hamilton.function_modifiers import base as base  # noqa: F401 -- retained test seam
 from hamilton.function_modifiers import (
+    check_output,
+    check_output_custom,
     config,
+    does,
+    dynamic_transform,
+    extract_columns,
+    extract_fields,
     hamilton_exclude,
     inject,
+    model,
     parameterize,
+    parameterize_extract_columns,
     parameterize_sources,
     parameterize_values,
     parameterized_inputs,
+    parameterized_subdag,
     parametrized,
     parametrized_input,
+    pipe,
+    pipe_input,
+    pipe_output,
+    subdag,
     tag,
     tag_outputs,
+    unpack_fields,
+)
+from hamilton.function_modifiers.adapters import (
+    LoadFromDecorator,
+    SaveToDecorator,
+    dataloader,
+    datasaver,
 )
 from hamilton.function_modifiers.delayed import resolve, resolve_from_config
 from hamilton.function_modifiers.metadata import RayRemote, SchemaOutput, cache
@@ -39,7 +59,11 @@ from ._hamilton_provenance import (  # noqa: F401 -- retained private compatibil
 )
 from ._hamilton_validation import normalize_validation_annotation
 from ._model import MISSING, InputSpec, NodeSpec
-from ._optional_profiles import identify_optional_modifier, validate_optional_profile
+from ._optional_profiles import (
+    identify_optional_modifier,
+    is_supported_optional_modifier,
+    validate_optional_profile,
+)
 from ._types import accepts, compatible, validate_type
 from .declarations import Acquisition, Policy
 
@@ -47,19 +71,39 @@ SUPPORTED_HAMILTON_VERSION = "1.90.0"
 SUPPORTED_SDAX_VERSION = "0.7.2"
 _EXCLUDED = type(hamilton_exclude)
 _SUPPORTED = (
+    check_output,
+    check_output_custom,
     config,
+    does,
+    dynamic_transform,
+    extract_columns,
+    extract_fields,
     inject,
+    model,
     parameterize,
+    parameterize_extract_columns,
     parameterize_sources,
     parameterize_values,
     parametrized,
     parametrized_input,
     parameterized_inputs,
+    parameterized_subdag,
+    pipe,
+    pipe_input,
+    pipe_output,
+    resolve,
+    resolve_from_config,
+    subdag,
     tag,
     tag_outputs,
     SchemaOutput,
     cache,
     RayRemote,
+    unpack_fields,
+    LoadFromDecorator,
+    SaveToDecorator,
+    dataloader,
+    datasaver,
 )
 
 
@@ -111,7 +155,7 @@ def _validate_declaration(fn, supported=_SUPPORTED):
     validation_profiles = [
         profile
         for modifier in modifiers
-        if type(modifier) in supported
+        if (type(modifier) in supported or is_supported_optional_modifier(modifier))
         and (profile := identify_optional_modifier(modifier)) in ("pydantic", "pandera")
     ]
     if len(validation_profiles) > 1:
@@ -140,7 +184,7 @@ def _validate_declaration(fn, supported=_SUPPORTED):
     if not has_delayed_modifier:
         validate_type(normalize_validation_annotation(hints["return"], validation_profile))
     for modifier in modifiers:
-        if type(modifier) not in supported:
+        if type(modifier) not in supported and not is_supported_optional_modifier(modifier):
             raise ValueError(
                 f"{fn.__name__}: unsupported Hamilton decorator {type(modifier).__name__}"
             )

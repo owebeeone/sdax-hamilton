@@ -1,8 +1,8 @@
 """Identify explicitly used shipped modifiers without importing optional backends.
 
-Identification is not admission: the compiler still owns each family's gate.
-The fixed dependency profiles pin the versions used by the qualification tests;
-their presence here does not claim that a family has passed its gate.
+The compiler admits the implemented profiles through the exact-class predicate.
+The fixed dependency profiles pin versions used by the qualification tests;
+recognition of a class alone is distinct from admitting its execution profile.
 """
 
 import sys
@@ -62,3 +62,8 @@ def validate_optional_profile(profile: str) -> None:
                 f"Hamilton {profile} profile requires {distribution}=={expected}; "
                 f"found {installed}"
             )
+
+
+def is_supported_optional_modifier(modifier: Any) -> bool:
+    """Admit exact explicitly used classes from the implemented static profiles."""
+    return identify_optional_modifier(modifier) in ("pandas", "polars", "pydantic", "pandera")

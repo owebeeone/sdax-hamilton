@@ -2,7 +2,6 @@
 
 import inspect
 import os
-from functools import partial
 
 import pytest
 
@@ -10,25 +9,12 @@ if os.environ.get("SDAX_HAMILTON_TEST_PROFILE") != "pandas":
     pytest.skip("requires SDAX_HAMILTON_TEST_PROFILE=pandas", allow_module_level=True)
 
 import pandas as pd
-from hamilton.experimental.decorators.parameterize_frame import parameterize_frame
 
-from sdax_hamilton import Driver, hamilton_compat
-from sdax_hamilton import driver as driver_module
+from sdax_hamilton import Driver
 from sdax_hamilton._hamilton_bindings import (
     capture_bindings,
     is_parameterize_extract,
 )
-
-
-def _admit(monkeypatch):
-    monkeypatch.setattr(
-        driver_module,
-        "compile_modules",
-        partial(
-            hamilton_compat.compile_modules,
-            _supported=(*hamilton_compat._SUPPORTED, parameterize_frame),
-        ),
-    )
 
 
 def test_parameterize_frame_eagerly_snapshots_rows_names_schema_and_literals(module_factory):
@@ -89,7 +75,6 @@ def columns(number: pd.Series, factor: int) -> pd.DataFrame:
 async def test_parameterize_frame_reuses_b_contracts_for_defaults_and_projections(
     module_factory, monkeypatch
 ):
-    _admit(monkeypatch)
     fallback = pd.Series([5, 7], name="seed")
     specification = pd.DataFrame(
         [["left", "seed", 2]],
@@ -135,7 +120,6 @@ def columns(
 async def test_parameterize_frame_config_resolution_preserves_synthesized_names(
     module_factory, monkeypatch
 ):
-    _admit(monkeypatch)
     specification = pd.DataFrame(
         [["left", "seed"]],
         columns=[["left", "number"], ["out", "source"]],
@@ -167,7 +151,6 @@ def columns__one(number: pd.Series) -> pd.DataFrame:
 async def test_parameterize_frame_projection_borrows_its_owned_expansion(
     module_factory, monkeypatch
 ):
-    _admit(monkeypatch)
     events: list[object] = []
     specification = pd.DataFrame(
         [["left", "seed"]],

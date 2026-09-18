@@ -9,8 +9,13 @@ if os.environ.get("SDAX_HAMILTON_TEST_PROFILE") != "pandas":
 
 import pandas as pd
 
+from sdax_hamilton import Driver
 
-def test_with_columns_preserves_namespace_config_schema_and_values(hamilton_oracle):
+
+@pytest.mark.asyncio
+async def test_with_columns_preserves_namespace_config_schema_and_values(
+    hamilton_oracle, module_factory, graph_signature
+):
     source = """
 import pandas as pd
 
@@ -54,3 +59,7 @@ def enriched(frame: pd.DataFrame) -> pd.DataFrame:
     result = oracle.execute(["enriched"], inputs={"frame": frame})["enriched"]
 
     pd.testing.assert_frame_equal(result, pd.DataFrame({"value": [2, 4], "scaled": [4, 8]}))
+    frontend = Driver(module_factory(source), config={"scale": 2})
+    assert graph_signature(frontend._nodes) == graph_signature(oracle.graph.nodes)
+    actual = await frontend.prepare(["enriched"]).execute(inputs={"frame": frame})
+    pd.testing.assert_frame_equal(actual["enriched"], result)

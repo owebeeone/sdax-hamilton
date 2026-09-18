@@ -6,29 +6,11 @@ capture into the production compiler.
 """
 
 import asyncio
-from functools import partial
 
 import pytest
-from hamilton.function_modifiers import does, pipe, pipe_input, pipe_output, value
+from hamilton.function_modifiers import value
 
-from sdax_hamilton import Driver, hamilton_compat
-from sdax_hamilton import driver as driver_module
-
-
-@pytest.fixture(autouse=True)
-def _provisional_c_admission(monkeypatch):
-    """Qualify the implementation while the public QB admission gate stays closed.
-
-    Remove this finite test-only harness when QB enables these exact classes.
-    """
-    monkeypatch.setattr(
-        driver_module,
-        "compile_modules",
-        partial(
-            hamilton_compat.compile_modules,
-            _supported=(*hamilton_compat._SUPPORTED, does, pipe, pipe_input, pipe_output),
-        ),
-    )
+from sdax_hamilton import Driver
 
 
 @pytest.mark.asyncio

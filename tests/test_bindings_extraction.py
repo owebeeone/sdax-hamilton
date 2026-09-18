@@ -1,22 +1,17 @@
 import inspect
-from functools import partial
 from typing import get_type_hints
 
 import pytest
 from hamilton.function_modifiers import (
     configuration,
-    extract_columns,
-    extract_fields,
     group,
     inject,
     parameterize_extract_columns,
     source,
-    unpack_fields,
     value,
 )
 
-from sdax_hamilton import Driver, hamilton_compat
-from sdax_hamilton import driver as driver_module
+from sdax_hamilton import Driver
 from sdax_hamilton._hamilton_bindings import capture_bindings
 from sdax_hamilton._model import MISSING
 
@@ -25,23 +20,6 @@ def _capture(fn, modifier):
     return capture_bindings(fn, modifier, get_type_hints(fn, include_extras=True), inspect.signature(fn).parameters)
 
 
-@pytest.fixture(autouse=True)
-def _admit_binding_families(monkeypatch):
-    """Exercise exact B surfaces without extending the public supported set."""
-    monkeypatch.setattr(
-        driver_module,
-        "compile_modules",
-        partial(
-            hamilton_compat.compile_modules,
-            _supported=(
-                *hamilton_compat._SUPPORTED,
-                extract_fields,
-                extract_columns,
-                unpack_fields,
-                parameterize_extract_columns,
-            ),
-        ),
-    )
 
 
 def test_binding_capture_preserves_merged_source_requirements_and_original_defaults():
@@ -129,7 +107,7 @@ def test_binding_capture_admits_direct_group_values_and_source_defaults():
 
 
 def test_binding_capture_tracks_parameterize_extract_columns_outputs():
-    from hamilton.function_modifiers import ParameterizedExtract, parameterize_extract_columns
+    from hamilton.function_modifiers import ParameterizedExtract
 
     def columns(number: int, seed: int = 3) -> object:
         return number + seed

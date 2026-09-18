@@ -1,6 +1,6 @@
 # API guide
 
-This guide describes the initial alpha surface. See
+This guide describes the development API. See
 [Compatibility](Compatibility.md) for the exact supported declaration subset and
 [implementation status](../dev-docs/Implementation-Status.md) for qualification.
 
@@ -9,7 +9,8 @@ This guide describes the initial alpha surface. See
 `Driver(*modules, config=None)` discovers typed application functions and shutdown
 declarations in the supplied Python modules. It uses the installed Hamilton to
 resolve admitted decorators, checks declarations and retains a typed node and
-ownership representation. It does not execute Hamilton's scheduler or adapters.
+ownership representation. SDAX schedules generated calls, including admitted I/O
+adapters; Hamilton's scheduler and execution lifecycle adapters are not used.
 
 `driver.prepare(final_vars, *, optional_inputs=(), override_nodes=(),
 check_outputs=True)` selects and validates a graph and constructs one SDAX

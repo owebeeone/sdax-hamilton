@@ -1,46 +1,16 @@
 """Driver/PreparedPlan qualification for the finite phase-F I/O admission."""
 
 from dataclasses import dataclass
-from functools import partial
 from typing import Any
 from uuid import uuid4
 
 import pytest
-from hamilton.function_modifiers import check_output, parameterized_subdag
-from hamilton.function_modifiers.adapters import (
-    LoadFromDecorator,
-    SaveToDecorator,
-    dataloader,
-    datasaver,
-)
 from hamilton.function_modifiers.expanders import extract_fields
 from hamilton.io.data_adapters import DataLoader, DataSaver
 from hamilton.registry import LOADER_REGISTRY, SAVER_REGISTRY
 
 from sdax_hamilton import Driver, hamilton_compat
-from sdax_hamilton import driver as driver_module
 from sdax_hamilton._model import GeneratedRole
-
-
-@pytest.fixture(autouse=True)
-def _admit_exact_io_modifiers(monkeypatch):
-    """Use the process-local F allowlist without widening public admission."""
-    monkeypatch.setattr(
-        driver_module,
-        "compile_modules",
-        partial(
-            hamilton_compat.compile_modules,
-            _supported=(
-                *hamilton_compat._SUPPORTED,
-                LoadFromDecorator,
-                SaveToDecorator,
-                dataloader,
-                datasaver,
-                check_output,
-                parameterized_subdag,
-            ),
-        ),
-    )
 
 
 def _registry_name() -> str:

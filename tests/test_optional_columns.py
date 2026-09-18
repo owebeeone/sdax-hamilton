@@ -1,7 +1,6 @@
 """Qualified exact Polars ``with_columns`` capture through the real frontend."""
 
 import os
-from functools import partial
 
 import pytest
 
@@ -10,31 +9,13 @@ if os.environ.get("SDAX_HAMILTON_TEST_PROFILE") != "polars":
 
 import polars as pl
 from hamilton import settings
-from hamilton.function_modifiers import pipe_input, pipe_output
-from hamilton.function_modifiers.delayed import resolve_from_config
-from hamilton.function_modifiers.validation import check_output_custom
-from hamilton.plugins.h_polars import with_columns as eager_with_columns
-from hamilton.plugins.h_polars_lazyframe import with_columns as lazy_with_columns
 
-from sdax_hamilton import Driver, hamilton_compat
-from sdax_hamilton import driver as driver_module
+from sdax_hamilton import Driver
 from sdax_hamilton._model import GeneratedRole
-
-
-def _admit(monkeypatch, *modifier_types):
-    monkeypatch.setattr(
-        driver_module,
-        "compile_modules",
-        partial(
-            hamilton_compat.compile_modules,
-            _supported=(*hamilton_compat._SUPPORTED, *modifier_types),
-        ),
-    )
 
 
 @pytest.mark.asyncio
 async def test_eager_columns_preserve_nested_owner_and_snapshot(module_factory, monkeypatch):
-    _admit(monkeypatch, eager_with_columns, check_output_custom)
     events: list[object] = []
     module = module_factory(
         """
@@ -115,7 +96,6 @@ def changed(left: pl.Series, right: pl.Series) -> pl.Series:
 
 @pytest.mark.asyncio
 async def test_lazy_columns_remain_lazy_and_keep_nested_origin(module_factory, monkeypatch):
-    _admit(monkeypatch, lazy_with_columns)
     module = module_factory(
         """
 import polars as pl
@@ -149,7 +129,6 @@ def enriched(frame: pl.LazyFrame) -> pl.LazyFrame:
 async def test_columns_select_one_configured_nested_declaration(
     module_factory, monkeypatch, mode, expected
 ):
-    _admit(monkeypatch, eager_with_columns)
     module = module_factory(
         """
 import polars as pl
@@ -189,7 +168,6 @@ def enriched(frame: pl.DataFrame) -> pl.DataFrame:
 async def test_delayed_columns_select_once_and_use_the_same_capture_path(
     module_factory, monkeypatch
 ):
-    _admit(monkeypatch, resolve_from_config, eager_with_columns)
     resolver_calls: list[str] = []
     module = module_factory(
         """
@@ -229,7 +207,6 @@ def enriched(frame: pl.DataFrame) -> pl.DataFrame:
 
 @pytest.mark.asyncio
 async def test_pipeline_default_survives_columns_namespace(module_factory, monkeypatch):
-    _admit(monkeypatch, pipe_output, eager_with_columns)
     fallback = pl.Series([2])
     module = module_factory(
         """
@@ -269,7 +246,6 @@ def enriched(frame: pl.DataFrame) -> pl.DataFrame:
 async def test_columns_namespace_keeps_merged_pipeline_requirements_before_callbacks(
     module_factory, monkeypatch
 ):
-    _admit(monkeypatch, resolve_from_config, pipe_input, eager_with_columns)
     events: list[str] = []
     resolver_calls: list[str] = []
     module = module_factory(

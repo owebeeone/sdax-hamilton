@@ -67,7 +67,11 @@ from ._hamilton_validation import (
     correct_validation_representation,
 )
 from ._model import GeneratedRole, InputSpec
-from ._optional_profiles import identify_optional_modifier, validate_optional_profile
+from ._optional_profiles import (
+    identify_optional_modifier,
+    is_supported_optional_modifier,
+    validate_optional_profile,
+)
 
 _EXCLUDED = type(hamilton_exclude)
 
@@ -830,7 +834,7 @@ class _ProvenanceCapture:
             fn: Callable[..., Any],
         ) -> base.NodeTransformLifecycle:
             resolved = copy(resolve_modifier(configuration, fn))
-            if type(resolved) not in self.supported:
+            if type(resolved) not in self.supported and not is_supported_optional_modifier(resolved):
                 raise ValueError(
                     f"{declaration.__name__}: resolver returned unsupported Hamilton decorator "
                     f"{type(resolved).__name__}"
@@ -1135,7 +1139,11 @@ class _ProvenanceCapture:
     def _instrument_modifier(
         self, snapshot: base.NodeTransformLifecycle, declaration: Callable[..., Any]
     ) -> base.NodeTransformLifecycle:
-        if type(snapshot) not in self.supported and type(snapshot) is not _EXCLUDED:
+        if (
+            type(snapshot) not in self.supported
+            and type(snapshot) is not _EXCLUDED
+            and not is_supported_optional_modifier(snapshot)
+        ):
             raise ValueError(
                 f"{declaration.__name__}: unsupported Hamilton decorator "
                 f"{type(snapshot).__name__}"

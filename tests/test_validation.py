@@ -4,41 +4,17 @@ import gc
 import inspect
 import logging
 import weakref
-from functools import partial
 
 import pytest
 from hamilton import node
 from hamilton.data_quality.base import DataValidationError, DataValidator, ValidationResult
 from hamilton.function_modifiers import (
-    check_output,
     check_output_custom,
-    extract_fields,
-    pipe_output,
 )
 
-from sdax_hamilton import Driver, hamilton_compat
-from sdax_hamilton import driver as driver_module
+from sdax_hamilton import Driver
 from sdax_hamilton._hamilton_validation import correct_validation_gate
 from sdax_hamilton._model import GeneratedRole
-
-
-@pytest.fixture(autouse=True)
-def _provisional_e_admission(monkeypatch):
-    """Remove this finite admission harness when the public QB gate opens."""
-    monkeypatch.setattr(
-        driver_module,
-        "compile_modules",
-        partial(
-            hamilton_compat.compile_modules,
-            _supported=(
-                *hamilton_compat._SUPPORTED,
-                check_output,
-                check_output_custom,
-                extract_fields,
-                pipe_output,
-            ),
-        ),
-    )
 
 
 class RecordingValidator(DataValidator):

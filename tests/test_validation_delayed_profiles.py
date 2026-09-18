@@ -1,41 +1,17 @@
 """V x D qualification for exact optional validators returned by a resolver."""
 
 import os
-from functools import partial
 
 import pytest
 from hamilton import driver as hamilton_driver
 from hamilton import settings
-from hamilton.function_modifiers.delayed import resolve_from_config
 
-from sdax_hamilton import Driver, hamilton_compat
-from sdax_hamilton import driver as driver_module
+from sdax_hamilton import Driver
 
 _PROFILE_VARIABLE = "SDAX_HAMILTON_TEST_PROFILE"
 _CONFIGURATION = {settings.ENABLE_POWER_USER_MODE: True}
 
 
-@pytest.fixture(autouse=True)
-def _provisional_vd_admission(monkeypatch):
-    profile = os.environ.get(_PROFILE_VARIABLE)
-    if profile == "pydantic":
-        from hamilton.plugins.h_pydantic import check_output
-    elif profile == "pandera":
-        from hamilton.plugins.h_pandera import check_output
-    else:
-        return
-    monkeypatch.setattr(
-        driver_module,
-        "compile_modules",
-        partial(
-            hamilton_compat.compile_modules,
-            _supported=(
-                *hamilton_compat._SUPPORTED,
-                resolve_from_config,
-                check_output,
-            ),
-        ),
-    )
 
 
 def require_profile(expected):

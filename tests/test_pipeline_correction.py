@@ -40,17 +40,19 @@ async def result() -> int:
         base.resolve_nodes(module.result, {})
 
 
-def test_correction_does_not_admit_pipeline_decorators_to_the_frontend(module_factory):
+def test_unknown_pipeline_subclass_is_rejected(module_factory):
     module = module_factory("""
 from hamilton.function_modifiers import pipe_output, step
 def increment(value: int) -> int:
     return value + 1
-@pipe_output(step(increment))
+class UnknownPipeline(pipe_output):
+    pass
+@UnknownPipeline(step(increment))
 async def result() -> int:
     return 1
 """)
 
-    with pytest.raises(ValueError, match="unsupported Hamilton decorator pipe_output"):
+    with pytest.raises(ValueError, match="unsupported Hamilton decorator UnknownPipeline"):
         Driver(module)
 
 

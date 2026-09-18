@@ -109,7 +109,9 @@ def result(x: int) -> int:
         ),
         (
             """from hamilton.function_modifiers import extract_fields
-@extract_fields({"field": int})
+class UnknownExtraction(extract_fields):
+    pass
+@UnknownExtraction({"field": int})
 def result() -> dict:
     return {"field": 1}""",
             "unsupported Hamilton decorator",
