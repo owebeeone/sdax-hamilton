@@ -42,6 +42,7 @@ from ._construction import wrap_lifecycle
 from ._hamilton_bindings import (
     _PARAMETERIZE_TYPES,
     capture_bindings,
+    is_parameterize_extract,
     snapshot_binding_containers,
 )
 from ._hamilton_loader import install_load_from_correction
@@ -59,6 +60,7 @@ from ._hamilton_validation import (
     correct_validation_representation,
 )
 from ._model import GeneratedRole, InputSpec
+from ._optional_profiles import validate_optional_profile
 
 _LIFECYCLES = (
     base.NodeResolver,
@@ -237,7 +239,7 @@ class _ProvenanceCapture:
                     )
                     for output in modifier.parameterization
                 }
-            elif type(modifier) is parameterize_extract_columns:
+            elif is_parameterize_extract(modifier):
                 names = {
                     f"{entry.name}__{index}": f"{declaration.__name__}__{index}"
                     for index, _ in enumerate(modifier.extract_config)
@@ -732,7 +734,9 @@ class _ProvenanceCapture:
     ) -> base.NodeTransformLifecycle:
         if type(snapshot) is parameterized_subdag:
             self._instrument_parameterized_subdag(snapshot, declaration)
-        elif type(snapshot) in _PARAMETERIZE_TYPES or type(snapshot) is parameterize_extract_columns:
+        elif type(snapshot) in _PARAMETERIZE_TYPES or is_parameterize_extract(snapshot):
+            if type(snapshot) is not parameterize_extract_columns:
+                validate_optional_profile("pandas")
             self._instrument_bindings(snapshot, declaration)
         elif type(snapshot) in (extract_fields, extract_columns, unpack_fields):
             self._instrument_extraction(snapshot, declaration)
