@@ -62,12 +62,13 @@ can change public compatibility claims.
 | P0 | Complete | Reviewed-plan requirements mapped to existing implementation above; bounded initial ownership assigned |
 | P1 | Complete for initial lanes | Four new oracle characterizations pass; full source suite 179 passed on Python 3.12.12; changed fixtures pass Ruff |
 | S | Passed bounded feasibility gate | Independent safety and architecture reviewers approve P2/P3; proof commit `827cda8`; production selection/ownership enforcement remains P4/E |
-| A / QA | Implementation integrated; QA reopened | Initial reviews passed `326c18e`; later construction-log sentinel finding requires correction before QA completion |
+| A / QA | Bounded gate passed | Initial implementation `326c18e`; P2 public-Driver regression closes construction-log sentinel finding |
 | U1 | Complete as inactive correction | `20c332a`; upstream expansion delegated, async source preserved; C admission still pending |
 | U2 | Complete as inactive correction | `d9c3c81`; exact admitted LoadFrom collection required after the compiler version gate; F admission still pending |
-| P2 | In progress | Sol provenance lane owns compiler/NodeSpec capture; no broad family activation |
+| P2 | Passed bounded foundation gate | `24f7787`; both independent reviewers pass single-resolution capture, nested mount handoff and construction disposal; no broad family activation |
 | P3 | Passed bounded gate | `76a5d56`; both independent reviewers pass; original consumer requirements use existing selection/runtime paths |
-| P4 / B / C / E / F | Preparation | Six editor lanes after S; implement against foundations, qualify before activation |
+| P4 | Reviewed, awaiting integration | `d9a80df`; both reviewers pass ownership traversal, replacement restrictions, validation roles and concrete default injection |
+| B / C / D0–D3 / E / F | In progress | Six editor lanes; helpers and real Driver qualification precede public activation |
 | QB onward | Planned | Follow the reviewed DAG; no early activation of unqualified families |
 
 Initial local clones are ready: `ham-provenance`, `ham-aliases`, `ham-pipelines`
@@ -131,3 +132,18 @@ both successful and failed construction. Its public configuration-predicate
 regression must close the reopened construction-diagnostic QA finding. Explicit
 public shutdown targets remapped to transformed acquisition nodes remain an E/P4
 activation requirement, separate from this bounded foundation gate.
+
+Checkpoint `499b823` integrates P2's production capture with P3, construction
+exception transport and bounded TypedDict checking. All 255 source tests pass on
+Python 3.12 and the package/authoring mypy check passes. Independent foundation
+reviews are recorded in [safety](Compiler-Foundation-ReviewA6a.md) and
+[architecture](Compiler-Foundation-ReviewA6b.md). The public configuration-predicate
+test preserves the original exception, calls it once and leaves Hamilton's raw
+construction logging silent; the reopened A/QA issue is closed.
+
+P4's worker checkpoint has 277 passing tests. Both reviewers independently reran
+the suite, Ruff and direct role/ownership tests; the safety reviewer additionally
+cancelled a borrowed alias and observed one owner release with the original caller
+cancellation preserved. A maintained borrow-specific cancellation composition
+case belongs to QB. Family admission, raw target remapping and full Hamilton
+validation diagnostics remain separate gates.
