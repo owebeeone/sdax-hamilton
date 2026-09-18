@@ -1,14 +1,9 @@
-"""Opt-in local Spark parity for the private G3 frontend preparation path.
-
-This keeps admission process-local for qualification. It neither enables the
-public optional profile nor adds a Spark execution bridge to SDAX.
-"""
+"""Opt-in public Driver tests for caller-owned, lazy local Spark plans."""
 
 # ruff: noqa: E402
 
 import os
 import sys
-from functools import partial
 
 import pytest
 
@@ -29,30 +24,11 @@ from hamilton.plugins import h_spark
 from pyspark import SparkContext
 from pyspark.sql import Column, DataFrame, SparkSession
 
-from sdax_hamilton import Acquisition, Driver, execution, hamilton_compat, shutdown
-from sdax_hamilton import driver as driver_module
+from sdax_hamilton import Acquisition, Driver, execution, shutdown
 
 
 def _assert_no_active_jobs(spark_session: SparkSession) -> None:
     assert spark_session.sparkContext.statusTracker().getActiveJobsIds() == []
-
-
-def _admit_spark(monkeypatch) -> None:
-    """Enable the exact decorator only within this qualification process."""
-    monkeypatch.setattr(
-        driver_module,
-        "compile_modules",
-        partial(
-            hamilton_compat.compile_modules,
-            _supported=(
-                *hamilton_compat._SUPPORTED,
-                h_spark.with_columns,
-                h_spark.select,
-                h_spark.require_columns,
-                subdag,
-            ),
-        ),
-    )
 
 
 @pytest.fixture
@@ -80,7 +56,6 @@ async def test_driver_returns_a_lazy_caller_owned_spark_dataframe(
     module_factory, monkeypatch, spark_session
 ):
     """SDAX prepares the stock lazy plan; only the test performs an action."""
-    _admit_spark(monkeypatch)
     calls: list[str] = []
 
     module = module_factory(
@@ -132,7 +107,6 @@ async def test_driver_allows_require_columns_only_inside_the_copied_spark_subdag
     module_factory, monkeypatch, spark_session
 ):
     """The nested Column helper remains part of the caller-owned lazy chain."""
-    _admit_spark(monkeypatch)
     module = module_factory(
         """
 @require_columns("value")
@@ -169,7 +143,6 @@ def nested(value: DataFrame) -> DataFrame:
 
 def test_driver_rejects_standalone_require_columns(module_factory, monkeypatch):
     """The exact Spark profile does not admit top-level Column transformations."""
-    _admit_spark(monkeypatch)
     module = module_factory(
         """
 @require_columns("value")
@@ -188,7 +161,6 @@ def direct(frame: DataFrame) -> Column:
 
 def test_driver_rejects_spark_columns_nested_in_a_subdag(module_factory, monkeypatch):
     """Namespaced subdag expansion has no admitted Spark capture contract yet."""
-    _admit_spark(monkeypatch)
     nested = module_factory(
         """
 def primitive_double(value: int) -> int:
@@ -226,7 +198,6 @@ def result(enriched: DataFrame) -> DataFrame:
 
 def test_driver_rejects_owned_spark_ancestor_before_callbacks(module_factory, monkeypatch):
     """An acquisition feeding the lazy chain cannot escape SDAX lifetime control."""
-    _admit_spark(monkeypatch)
     events: list[str] = []
     module = module_factory(
         """
@@ -268,7 +239,6 @@ def test_driver_rejects_nondefault_policy_on_spark_plan_before_callbacks(
     module_factory, monkeypatch
 ):
     """Execution policies cannot govern a caller-owned lazy Spark plan."""
-    _admit_spark(monkeypatch)
     events: list[str] = []
     module = module_factory(
         """
@@ -326,7 +296,6 @@ def test_driver_rejects_lifecycle_on_nested_spark_udf_before_expansion(
     module_factory, monkeypatch, nested_declaration, message
 ):
     """Nested UDF lifecycle state is rejected before Spark can combine it."""
-    _admit_spark(monkeypatch)
     events: list[str] = []
     module = module_factory(
         nested_declaration

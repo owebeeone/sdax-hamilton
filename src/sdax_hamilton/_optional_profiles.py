@@ -66,4 +66,4 @@ def validate_optional_profile(profile: str) -> None:
 
 def is_supported_optional_modifier(modifier: Any) -> bool:
     """Admit exact explicitly used classes from the implemented static profiles."""
-    return identify_optional_modifier(modifier) in ("pandas", "polars", "pydantic", "pandera")
+    return identify_optional_modifier(modifier) in ("pandas", "polars", "pydantic", "pandera", "spark")

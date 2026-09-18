@@ -11,6 +11,7 @@ They do not admit Spark decorators to SDAX.
 
 import os
 import sys
+from pathlib import Path
 from types import MethodType
 
 import pytest
@@ -81,6 +82,9 @@ def spark_session(monkeypatch):
         .getOrCreate()
     )
     try:
+        # Executors need the public witness module independently of pytest's
+        # driver-side sys.path adjustments.
+        session.sparkContext.addPyFile(str(Path(__file__).with_name("spark_contract_witnesses.py")))
         yield session
     finally:
         session.stop()

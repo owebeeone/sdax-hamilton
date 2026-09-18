@@ -233,3 +233,26 @@ Explicit Python 3.12 profile runs pass Pandas 5, Polars 7, Pydantic 9 and Pander
 selected suite. Those runs include real public Driver execution. Spark production
 wiring remains the final implementation lane. Final artifact checks and the
 consolidated review are still pending; no release or push is authorized here.
+
+## Code-complete checkpoint (2026-09-18)
+
+The bounded static decorator implementation is now integrated, including Spark.
+Every family test uses normal public admission. No review agent was resumed:
+the user requested implementation completion before the next review cycle.
+
+The local wheel passes **434 tests** with 24 optional-profile skips on each of
+Python **3.11, 3.12 and 3.13**. A source-distribution installation on Python 3.12
+passes the same suite. Tests ran outside the source checkout with no `PYTHONPATH`.
+All five optional installed-wheel suites pass; counts and environment limits are
+in [Optional profile qualification](Optional-Profile-Qualification.md). Ruff,
+package/authoring mypy (20 source files) and whitespace checks pass.
+
+Spark accepts caller-owned lazy local plans only. It rejects lifecycle/policy
+placements in the upstream chain, nested UDF lifecycle declarations, standalone
+`require_columns`, and Spark decorators mounted inside Hamilton subdags. These
+explicit restrictions are part of the current compatibility boundary, not claims
+of unrestricted Hamilton composition parity. SDAX core is unchanged.
+
+Code completion does not close the consolidated safety/architecture review or
+the final plan acceptance gates. Review agents remain paused at this checkpoint;
+no push, release, version bump or publication was performed.

@@ -71,10 +71,21 @@ optional.
 | Polars eager/lazy `with_columns` | Polars 1.44.2 | Native column graphs; lazy results remain lazy. |
 | Pydantic `check_output` | Pydantic 2.13.5 | Result is honestly typed as `Model \| dict[str, Any]`; no coercion. Nominal-model-only consumers/shutdowns are rejected. |
 | Pandera `check_output` | Pandera 0.33.1, Pandas 3.0.6 | Validated producer returns concrete `pandas.DataFrame`. Generic `DataFrame[Schema]` consumer/shutdown annotations remain unsupported. |
+| Spark `with_columns`, `select`, nested `require_columns` | PySpark 4.0.1, Pandas 2.3.3, PyArrow 21.0.0, Java 21 | Caller-owned classic local session and lazy plans only; the caller performs later actions and retains required resources. |
 
 Optional profiles currently have Python 3.12 local qualification. These bounded
 profiles are not a claim of every possible decorator composition or unrestricted
-backend/lifetime parity. Spark integration is still in progress.
+backend/lifetime parity.
+
+Spark rejects owned acquisitions, shutdowns, borrowed values and nondefault
+execution/release policies throughout the upstream dependency chain. Nested UDFs
+cannot declare execution policies or shutdowns. Standalone `require_columns` and
+Spark decorators mounted inside Hamilton subdags are rejected. Spark Connect,
+remote/background work and a Spark cancellation bridge are outside this profile.
+Trusted functions must build lazy plans without starting actions or background
+jobs; arbitrary Python bodies cannot be statically verified. An inline synchronous
+action blocks the event loop and delays cancellation until it returns. `open()`
+does not guarantee that Spark jobs have stopped.
 
 ## Type checking
 

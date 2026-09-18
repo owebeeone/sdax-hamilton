@@ -8,6 +8,8 @@
   execution policies to explicit generated I/O targets.
 - Add optional Pandas, Polars, Pydantic and Pandera profiles with pinned test
   environments and ordinary public Driver coverage.
+- Add bounded lazy local Spark plans with caller-owned sessions and early
+  rejection of unsupported lifecycle placements.
 - Retain cache and Ray declarations as inactive metadata. SDAX remains the sole
   graph orchestrator; these declarations do not enable their execution backends.
 
