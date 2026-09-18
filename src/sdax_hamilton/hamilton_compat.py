@@ -37,6 +37,7 @@ from ._hamilton_provenance import (  # noqa: F401 -- retained private compatibil
     _copy_function,
     _ProvenanceCapture,
 )
+from ._hamilton_spark import reject_unsafe_spark_cones
 from ._hamilton_validation import normalize_validation_annotation
 from ._model import MISSING, InputSpec, NodeSpec
 from ._optional_profiles import identify_optional_modifier, validate_optional_profile
@@ -504,6 +505,9 @@ def compile_modules(modules, configuration, *, _supported=_SUPPORTED):
                 role=fact.role,
                 borrow_from=borrow_from.get(name, frozenset()),
             )
+
+        if capture.spark_nodes:
+            reject_unsafe_spark_cones(specs, capture.spark_nodes)
 
         # Hamilton performs its native edge compatibility checks. The mutable graph
         # is discarded; original specs preserve config-replaced ownership for Plan.

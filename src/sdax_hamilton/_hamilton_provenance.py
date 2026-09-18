@@ -46,6 +46,7 @@ from hamilton.function_modifiers.validation import (
 from hamilton.graph_utils import find_functions
 
 from ._construction import wrap_lifecycle
+from ._discovery import discover_shutdowns_for
 from ._hamilton_bindings import (
     _PARAMETERIZE_TYPES,
     capture_bindings,
@@ -116,6 +117,8 @@ class _ProvenanceCapture:
         self._pending: dict[
             tuple[object, int], tuple[Callable[..., Any], _CapturedFact]
         ] = {}
+        self._spark_nodes: set[str] = set()
+        self._spark_nested_depth = 0
         self._installed_methods: list[tuple[object, str, bool, object | None]] = []
 
     def _mount(self) -> tuple[object, tuple[str, ...]]:
@@ -972,11 +975,32 @@ class _ProvenanceCapture:
                 raise ValueError("with_columns requires plain nested functions")
             if hasattr(original, "__sdax_shutdown__"):
                 continue
-            cloned = self.clone(original)
+            if profile == "spark":
+                self._spark_nested_depth += 1
+            try:
+                cloned = self.clone(original)
+            finally:
+                if profile == "spark":
+                    self._spark_nested_depth -= 1
             if not isinstance(cloned, FunctionType):
                 raise AssertionError("Copied with_columns declaration is not a function")
             nested.append(cloned)
             nested_originals[cloned] = original
+        if profile == "spark":
+            policy_sources = [
+                source for source in nested_originals.values() if hasattr(source, "__sdax_execution__")
+            ]
+            if policy_sources:
+                raise ValueError(
+                    f"{policy_sources[0].__qualname__}: "
+                    "Spark nested UDF cannot declare an execution policy"
+                )
+            releases = discover_shutdowns_for(nested_originals.values())
+            if releases:
+                owner = getattr(releases[0], "__sdax_shutdown__")[0]
+                raise ValueError(
+                    f"{owner.__qualname__}: Spark nested UDF cannot declare a shutdown"
+                )
         modifier.subdag_functions = nested
         for name in ("select", "initial_schema", "config_required"):
             value = getattr(modifier, name)
@@ -1039,6 +1063,11 @@ class _ProvenanceCapture:
             configuration: dict[str, Any],
             fn: Callable[..., Any],
         ) -> tuple[list[node.Node], dict[str, str]]:
+            if profile == "spark" and self._mount()[0] is not self._root_mount:
+                raise ValueError(
+                    f"{declaration.__qualname__}: "
+                    "Spark with_columns/select cannot be nested in a Hamilton subdag"
+                )
             before_namespace.clear()
             generated, renames = inject_nodes(params, configuration, fn)
             generated = list(generated)
@@ -1049,6 +1078,14 @@ class _ProvenanceCapture:
                 generated, before_namespace, strict=True
             ):
                 self._handoff(after, mount, fact, before=before)
+            if profile == "spark":
+                # These are the exact native nodes returned after the Spark
+                # injector has expanded and namespaced its copied subdag, plus
+                # the native outer node which consumes that chain. They exist
+                # only for this construction and are consumed by the final
+                # graph guard in hamilton_compat.
+                self._spark_nodes.update(entry.name for entry in generated)
+                self._spark_nodes.add(fn.__name__)
             return generated, renames
 
         self._install_method(
@@ -1145,10 +1182,16 @@ class _ProvenanceCapture:
             validate_optional_profile(optional_profile)
             self._instrument_validation(snapshot, declaration, profile=optional_profile)
         elif (
-            optional_profile in ("pandas", "polars")
+            optional_profile in ("pandas", "polars", "spark")
             and isinstance(snapshot, with_columns_base)
         ):
             self._instrument_with_columns(snapshot, declaration, optional_profile)
+        elif optional_profile == "spark":
+            if self._spark_nested_depth == 0:
+                raise ValueError(
+                    f"{declaration.__qualname__}: "
+                    "standalone Spark require_columns is unsupported"
+                )
         elif type(snapshot) is parameterized_subdag:
             self._instrument_parameterized_subdag(snapshot, declaration)
         elif type(snapshot) is subdag:
@@ -1277,6 +1320,11 @@ class _ProvenanceCapture:
                 borrowed[name] = frozenset(found)
         return borrowed
 
+    @property
+    def spark_nodes(self) -> frozenset[str]:
+        """Return exact Spark nodes recorded by copied native expansion."""
+        return frozenset(self._spark_nodes)
+
     def finalize(self) -> None:
         """Detach interception methods and drop construction-only identity tables."""
         for instance, name, had_value, value in reversed(self._installed_methods):
@@ -1286,6 +1334,8 @@ class _ProvenanceCapture:
                 vars(instance).pop(name, None)
         self._installed_methods.clear()
         self._pending.clear()
+        self._spark_nodes.clear()
+        self._spark_nested_depth = 0
         self._clones.clear()
         self._helper_clones.clear()
         self._originals.clear()
