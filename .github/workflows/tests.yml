@@ -28,3 +28,30 @@ jobs:
         run: python -m mypy src/sdax_hamilton tests/typing/authoring.py
       - name: Test installed package
         run: python -m pytest -q -p no:cacheprovider
+
+  optional-profile:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [pandas, polars, pydantic, pandera, spark]
+    env:
+      SDAX_HAMILTON_TEST_PROFILE: ${{ matrix.profile }}
+      PYARROW_IGNORE_TIMEZONE: "1"
+      SPARK_LOCAL_IP: "127.0.0.1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install qualified profile and test tools
+        run: python -m pip install ".[test,test-${SDAX_HAMILTON_TEST_PROFILE}]"
+      - name: Install full Java 21 runtime for local Spark
+        if: matrix.profile == 'spark'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes openjdk-21-jdk-headless
+          echo "JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64" >> "$GITHUB_ENV"
+          echo "PYSPARK_PYTHON=$(command -v python)" >> "$GITHUB_ENV"
+      - name: Test installed package with selected profile
+        run: python -m pytest -q -p no:cacheprovider

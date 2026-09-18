@@ -170,3 +170,19 @@ clones' 2,285-file upstream scratch trees were hash-identical to the root refere
 they now link to that read-only reference instead of keeping duplicate copies.
 Product repositories remain independent GWZ local clones. Only regenerable mypy
 caches and these duplicate scratch copies were removed. Tests subsequently resumed.
+
+Checkpoint `08be6fb` includes the independently reviewed generated-node capture
+hooks and the recursive discovery helper. The preceding `995c364` checkpoint
+passed 312 tests on each of Python 3.11, 3.12 and 3.13. The newer checkpoint passes
+320 tests on Python 3.12; full lint passes, and integration typing fixes restore
+the package/authoring mypy check. These are foundation results, not family admission.
+
+Capture/copy machinery now lives in `_hamilton_provenance.py`; admission,
+declaration validation and lowering remain in `hamilton_compat.py`. Both reviewers
+approved this cohesion boundary without another graph representation. Production
+family work is now distributed across six independent GWZ clones: Sol owns shared
+contract transport and optional column capture; Terra lanes own binding/extraction,
+pipeline, recursive/model/resolver, and loader/saver hooks; the second Sol lane
+owns validation and its optional representations. Method ownership permits these
+lanes to edit their distinct hooks concurrently. Root serializes GWZ commits and
+merges, then checks compositions before widening public admission.
