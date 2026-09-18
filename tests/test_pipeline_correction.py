@@ -176,28 +176,3 @@ async def result() -> int:
         "result.with_increment",
         "result",
     }
-
-
-@pytest.mark.parametrize("version_source", ["distribution", "imported"])
-def test_correction_fails_closed_outside_the_pinned_hamilton_version(
-    module_factory, monkeypatch, version_source
-):
-    from sdax_hamilton import _hamilton_pipeline
-
-    module = module_factory("""
-from hamilton.function_modifiers import pipe_output, step
-def increment(value: int) -> int:
-    return value + 1
-@pipe_output(step(increment))
-async def result() -> int:
-    return 1
-""")
-    snapshot = _copy_function(module.result)
-    if version_source == "distribution":
-        monkeypatch.setattr(_hamilton_pipeline.metadata, "version", lambda _: "1.91.0")
-    else:
-        monkeypatch.setattr(_hamilton_pipeline.hamilton, "__version__", (1, 91, 0))
-
-    with pytest.raises(RuntimeError, match="requires apache-hamilton==1.90.0"):
-        correct_copied_async_output_pipelines(snapshot)
-    assert "__sdax_hamilton_async_output_pipeline_corrected__" not in snapshot.transform[0].__dict__

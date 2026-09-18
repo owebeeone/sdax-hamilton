@@ -48,12 +48,16 @@ from ._hamilton_loader import install_load_from_correction
 from ._hamilton_pipeline import (
     correct_copied_async_output_pipeline,
     correct_copied_async_output_pipelines,
+    selected_step_input_contracts,
     snapshot_copied_macro_bindings,
     snapshot_copied_macro_modifier,
     validate_copied_macro_bindings,
     validate_copied_macro_modifier,
 )
-from ._hamilton_validation import correct_validation_gate
+from ._hamilton_validation import (
+    correct_validation_gate,
+    correct_validation_representation,
+)
 from ._model import GeneratedRole, InputSpec
 
 _LIFECYCLES = (
@@ -350,7 +354,11 @@ class _ProvenanceCapture:
         )
 
     def _instrument_validation(
-        self, modifier: BaseDataValidationDecorator, declaration: Callable[..., Any]
+        self,
+        modifier: BaseDataValidationDecorator,
+        declaration: Callable[..., Any],
+        *,
+        profile: str | None = None,
     ) -> None:
         transform = modifier.transform_node
 
@@ -365,7 +373,10 @@ class _ProvenanceCapture:
             public_name = entry.name if incoming is None else incoming.public_name
             captured_declaration = declaration if incoming is None else incoming.declaration
             generated = list(
-                correct_validation_gate(transform(entry, configuration, fn))
+                correct_validation_representation(
+                    correct_validation_gate(transform(entry, configuration, fn)),
+                    profile,
+                )
             )
             for evidence in generated[:-2]:
                 self._remember(
@@ -403,8 +414,8 @@ class _ProvenanceCapture:
         self,
         modifier: pipe_input | pipe_output,
         declaration: Callable[..., Any],
-    ) -> list[tuple[Callable[..., Any], bool]]:
-        selected: list[tuple[Callable[..., Any], bool]] = []
+    ) -> list[tuple[Callable[..., Any], bool, Mapping[str, InputSpec]]]:
+        selected: list[tuple[Callable[..., Any], bool, Mapping[str, InputSpec]]] = []
 
         def instrument(applicable: Any, fact: tuple[Callable[..., Any], bool]) -> None:
             bind = applicable.bind_function_args
@@ -417,9 +428,11 @@ class _ProvenanceCapture:
                 _bind=bind,
                 _fact=fact,
             ):
-                result = _bind(current_parameter)
-                selected.append(_fact)
-                return result
+                upstream_inputs, literal_inputs = _bind(current_parameter)
+                selected.append(
+                    (*_fact, selected_step_input_contracts(instance, upstream_inputs))
+                )
+                return upstream_inputs, literal_inputs
 
             def namespaced_with_capture(
                 instance: Any,
@@ -495,9 +508,11 @@ class _ProvenanceCapture:
             step_facts = selected[selected_start:]
             if len(generated) != len(step_facts):
                 raise AssertionError("Hamilton pipe_input selection changed shape")
-            for step_node, (step_declaration, actual_call) in zip(
+            for step_node, (step_declaration, actual_call, input_contracts) in zip(
                 generated, step_facts, strict=True
             ):
+                if input_contracts and set(input_contracts) != set(step_node.input_types):
+                    raise AssertionError("Hamilton pipeline input names changed during expansion")
                 self._remember(
                     step_node,
                     GeneratedRole.VALUE,
@@ -505,6 +520,7 @@ class _ProvenanceCapture:
                     actual_call=actual_call,
                     borrows=not actual_call,
                     public_name=step_node.name,
+                    input_contracts=input_contracts,
                 )
             return generated, renames
 
@@ -554,9 +570,11 @@ class _ProvenanceCapture:
             step_facts = selected[selected_start:]
             if len(generated[1:-1]) != len(step_facts):
                 raise AssertionError("Hamilton pipe_output selection changed shape")
-            for step_node, (step_declaration, actual_call) in zip(
+            for step_node, (step_declaration, actual_call, input_contracts) in zip(
                 generated[1:-1], step_facts, strict=True
             ):
+                if input_contracts and set(input_contracts) != set(step_node.input_types):
+                    raise AssertionError("Hamilton pipeline input names changed during expansion")
                 self._remember(
                     step_node,
                     GeneratedRole.VALUE,
@@ -564,6 +582,7 @@ class _ProvenanceCapture:
                     actual_call=actual_call,
                     borrows=not actual_call,
                     public_name=step_node.name,
+                    input_contracts=input_contracts,
                 )
             self._remember(
                 generated[-1],
