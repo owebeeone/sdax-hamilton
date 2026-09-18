@@ -1,15 +1,16 @@
 # Optional profile qualification
 
-These profiles are under qualification. Their dependency pins and private
-recognition helper do **not** enable the corresponding decorators. QC remains
-open until actual Driver, SDAX, composition and installed-package cases pass.
+Pandas, Polars, Pydantic and Pandera now use ordinary public Driver admission;
+their temporary test admission fixtures have been removed. Spark is the final
+implementation lane. QC remains open until installed-package qualification and
+the consolidated review complete. The source results below use Python 3.12.
 
 | Profile | Candidate versions | Current evidence |
 |---|---|---|
-| Pandas / experimental frame | Pandas 3.0.6 | Two stock-Hamilton characterizations pass; frontend integration pending |
-| Polars eager/lazy | Polars 1.44.2 | Five stock characterizations pass, including lazy output and nested configuration; frontend integration pending |
-| Pydantic | Pydantic 2.13.5 | Stock schema validation preserves model/dict identity; frontend representation integration pending |
-| Pandera | Pandera 0.33.1, Pandas 3.0.6 | Stock dataframe identity/validation characterized; frontend schema typing integration pending |
+| Pandas / experimental frame | Pandas 3.0.6 | 5 focused cases pass, including public Driver graph/value comparison |
+| Polars eager/lazy | Polars 1.44.2 | 7 focused cases pass, including public Driver composition and preserved lazy output |
+| Pydantic | Pydantic 2.13.5 | 9 focused cases pass, including model/dict representation and delayed validation |
+| Pandera | Pandera 0.33.1, Pandas 3.0.6 | 10 focused cases pass, including concrete dataframe representation and delayed validation |
 | Classic local Spark | PySpark 4.0.1, Pandas 2.3.3, PyArrow 21.0.0, Java 21 | Local `local[2]` session/collect smoke passed; Hamilton plugin import passed; decorator/lifecycle gate pending |
 
 All use Apache Hamilton 1.90.0 and SDAX 0.7.2. Profile tests are product fixtures;

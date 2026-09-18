@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- Extend static graph compilation to Hamilton's binding/extraction, pipeline,
+  recursive subgraph, delayed resolver/model, validation and I/O decorator families.
+- Preserve parameter contracts and ownership through generated nodes; apply SDAX
+  execution policies to explicit generated I/O targets.
+- Add optional Pandas, Polars, Pydantic and Pandera profiles with pinned test
+  environments and ordinary public Driver coverage.
+- Retain cache and Ray declarations as inactive metadata. SDAX remains the sole
+  graph orchestrator; these declarations do not enable their execution backends.
+
+Consolidated review and final artifact qualification remain pending. Current
+boundaries are documented in [Compatibility](docs/Compatibility.md).
+
 ## 0.1.0
 
 First experimental PyPI release of the typed Hamilton frontend over SDAX.
