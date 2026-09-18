@@ -223,3 +223,103 @@ Ruff on the reviewed P3 source and tests: All checks passed!
 
 No other reviewer findings were consulted. I changed no product or test file in
 performing this review.
+
+## Final hooks and provenance split disposition
+
+The later hooks 1–4 snapshot passes this bounded safety review for integration
+as private compiler foundation. It preserves one selected Hamilton lifecycle
+resolution per actual mount, snapshots returned exact macro modifiers, applies
+validation correction before instrumentation, maps an explicit target to the
+captured actual raw call, retains exact dynamic dispatch, and disposes the
+construction capture. The mechanical split into `hamilton_compat.py`,
+`_hamilton_provenance.py` and `_hamilton_pipeline.py` preserves the compatibility
+reexports and the compiler's monkeypatch seam.
+
+The earlier helper-policy and shutdown bypasses are closed. A delayed resolver
+that returns a pipeline now copies each exact helper through the selected-step
+contract before instrumentation, so helper ownership, retry and shutdown facts
+are retained without replaying a lifecycle callback. A same-module maintained
+case proves one resolver call, helper policy, correct actual ownership, a live
+scope and one populated shutdown. A returned actual call absent from the finite
+discovered declaration set is rejected after the single trusted resolver call
+and before graph execution, helper effects or cleanup effects. Exact callable
+identity is enforced before expansion: callable-instance pipeline steps and
+`does` replacements are rejected with zero callable effects. For an accepted
+plain-function `does`, the replaced declaration remains the logical owner and
+does not inherit policy from the replacement helper.
+
+This is not a public-family activation verdict. Public `_SUPPORTED` remains
+unchanged. A helper available only from a separate module through a returned
+`Applicable` remains an explicit interim rejection pending bounded D0-style
+defining-module discovery. Callable objects remain rejected pending state,
+reentrancy and provenance qualification. Complete recursive D0/D2 admission and
+family-specific E behavior remain separately gated; the private remap hook does
+not by itself admit those families.
+
+Final frozen SHA256 values:
+
+- `src/sdax_hamilton/hamilton_compat.py`:
+  `e66f8e91f8a6f677dbd1ab15684cf64f7fdc04c3b0da22e97d2c83309866bc5e`
+- `src/sdax_hamilton/_hamilton_provenance.py`:
+  `c0ecd46350d0c2ad1260258818b11ba0f0980689e954405ff89c78b45d847620`
+- `src/sdax_hamilton/_hamilton_pipeline.py`:
+  `283b2cf9232169ff6705f0797585caca35ba2d38149eb46f86c64d8d644968cc`
+- `tests/test_provenance_feasibility.py`:
+  `617a4a58bef4a0b829bac3ae16b2a8b08d21249de28a1c4ce050c1e596d7ef4d`
+- `tests/test_macro_capture.py`:
+  `65047e596e161f9eb95bce78cf85290559250460cf32137a6c3391638b041508`
+- `dev-docs/Provenance-Feasibility.md`:
+  `d6d884b0d7a4d1a79ddaf2a61ddddbe1a6b19a8f76aedcd144ba68f7089dd7a5`
+
+The corrected frozen report records 11 focused provenance-feasibility tests and
+288 tests in the complete local source suite. The source and test hashes did not
+change for that report-only count correction.
+
+## Shared input-contract transport seam
+
+The shared input-contract seam passes this bounded review for integration. Its
+construction fact copies the supplied input map behind a read-only proxy and
+rejects keys absent from the exact Hamilton node. Extract, validation and
+pipeline transformations preserve the incoming declaration, role, actual-call
+and borrowing facts where applicable, and carry the original `InputSpec` values
+only along the actual input-consuming path. Validation therefore keeps the
+public gate protected while the raw call retains its input contracts and owner.
+
+Namespace handoff requires its source node, equal input arity and equal ordered
+`(type, DependencyType)` values before pairing old and new names. The maintained
+two-input `int`/`str` witness proves the intended remap and fail-closed rejection
+of reordered contracts. Equal-contract ambiguity remains bounded by the exact
+Hamilton 1.90 version gate and its inspected order-preserving `add_namespace`
+implementation.
+
+Lowering rejects captured keys absent from the final node, validates the final
+Hamilton type and every original requirement, and retains the complete
+conjunction in the existing `InputSpec`. An optional captured default keeps its
+application-object identity and must satisfy every requirement. A final required
+dependency discards the captured default, preserving Hamilton's required-input
+shape. The existing selection and runtime checks consequently continue to
+enforce all carried requirements before callbacks, including when output checks
+are disabled.
+
+This snapshot is deliberately transport-only. It contains no production seeding
+call, does not independently prove end-to-end B or C capture, and does not change
+public `_SUPPORTED`. The B and C overlays must seed this fact from their exact
+modifier contracts and retain their own real composition witnesses before any
+family activation.
+
+Frozen SHA256 values:
+
+- `src/sdax_hamilton/_hamilton_provenance.py`:
+  `fc2785390c7ecc5465ce9bc54e05616dbe584499c3d572dd811eb323757ce33f`
+- `src/sdax_hamilton/hamilton_compat.py`:
+  `4a3f6b6f367f378bcdc42d5f8462420c6994a829c90f776e31600e2d5a241e81`
+- `tests/test_provenance_feasibility.py`:
+  `d155014f348bcdb1e08fb70442a1a0e659339e11d287e35f85013e508d8d88e5`
+
+Independent verification on the frozen snapshot produced 13 focused provenance
+tests, 59 combined binding/provenance/macro tests and 319 tests in the complete
+source suite. Targeted mypy and Ruff checks and `git diff --check` passed. A
+direct probe separately confirmed mapping immutability, namespace remapping,
+conjunctive requirements, default identity, required-default removal, bad-default
+and unknown-key rejection, and preservation of an incoming validation-gate fact
+through extraction.

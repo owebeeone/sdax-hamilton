@@ -1,8 +1,8 @@
 """Construction-local capture for Hamilton modifier provenance.
 
-This module is the single cohesive exception to the project's usual 500-line
-source-file target. It owns the coupled copy, interception, and identity-handoff
-logic; splitting those phases would create a second provenance representation.
+The cohesion review keeps copying, interception and identity handoff together
+because they share construction-only identity tables. Revisit this boundary when
+those responsibilities can separate without duplicating state.
 """
 
 from collections.abc import Callable, Collection, Mapping
