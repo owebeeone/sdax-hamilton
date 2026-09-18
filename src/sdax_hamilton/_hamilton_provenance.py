@@ -5,14 +5,20 @@ because they share construction-only identity tables. Revisit this boundary when
 those responsibilities can separate without duplicating state.
 """
 
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Callable, Collection, Iterator, Mapping
+from contextlib import contextmanager
 from copy import copy
 from dataclasses import dataclass, field, replace
-from types import FunctionType, MappingProxyType, MethodType
+from types import FunctionType, MappingProxyType, MethodType, ModuleType
 from typing import Any
 
 from hamilton import node
-from hamilton.function_modifiers import base, parameterize, parameterized_subdag
+from hamilton.function_modifiers import (
+    base,
+    hamilton_exclude,
+    parameterize,
+    parameterized_subdag,
+)
 from hamilton.function_modifiers.adapters import LoadFromDecorator
 from hamilton.function_modifiers.delayed import resolve, resolve_from_config
 from hamilton.function_modifiers.expanders import extract_fields
@@ -30,6 +36,7 @@ from hamilton.function_modifiers.validation import (
     check_output,
     check_output_custom,
 )
+from hamilton.graph_utils import find_functions
 
 from ._construction import wrap_lifecycle
 from ._hamilton_loader import install_load_from_correction
@@ -44,6 +51,8 @@ from ._hamilton_pipeline import (
 )
 from ._hamilton_validation import correct_validation_gate
 from ._model import GeneratedRole, InputSpec
+
+_EXCLUDED = type(hamilton_exclude)
 
 _LIFECYCLES = (
     base.NodeResolver,
@@ -74,14 +83,18 @@ class _ProvenanceCapture:
         self,
         owned: Collection[Callable[..., Any]],
         supported: Collection[type[base.NodeTransformLifecycle]],
+        *,
+        validate_declaration: Callable[[Callable[..., Any]], None] | None = None,
     ) -> None:
         self.owned = frozenset(owned)
         self.supported = frozenset(supported)
+        self._validate_declaration = validate_declaration
         self._clones: dict[Callable[..., Any], Callable[..., Any]] = {}
         self._helper_clones: dict[FunctionType, FunctionType] = {}
         self._originals: dict[Callable[..., Any], Callable[..., Any]] = {}
         self._root_mount = object()
         self._mounts: list[tuple[object, tuple[str, ...]]] = []
+        self._active_declarations: set[Callable[..., Any]] = set()
         self._pending: dict[
             tuple[object, int], tuple[Callable[..., Any], _CapturedFact]
         ] = {}
@@ -89,6 +102,44 @@ class _ProvenanceCapture:
 
     def _mount(self) -> tuple[object, tuple[str, ...]]:
         return self._mounts[-1] if self._mounts else (self._root_mount, ())
+
+    @contextmanager
+    def resolving(self, declaration: Callable[..., Any]) -> Iterator[None]:
+        added = declaration not in self._active_declarations
+        if added:
+            self._active_declarations.add(declaration)
+        try:
+            yield
+        finally:
+            if added:
+                self._active_declarations.remove(declaration)
+
+    def _reject_active_sources(self, sources: Collection[Callable[..., Any]]) -> None:
+        recursive = self._active_declarations.intersection(sources)
+        if recursive:
+            declaration = next(iter(recursive))
+            raise ValueError(f"Recursive subdag declaration cycle at {declaration.__qualname__}")
+
+    def _instrument_subdag_collection(self, modifier: subdag) -> None:
+        collect_nodes = modifier.collect_nodes
+
+        def collect_with_capture(
+            _instance: subdag,
+            config: dict[str, Any],
+            subdag_functions: list[Callable[..., Any]],
+        ) -> list[node.Node]:
+            collected: list[node.Node] = []
+            for function in subdag_functions:
+                declaration = self._originals.get(function, function)
+                with self.resolving(declaration):
+                    collected.extend(collect_nodes(config, [function]))
+            return collected
+
+        self._install_method(
+            modifier,
+            "collect_nodes",
+            MethodType(collect_with_capture, modifier),
+        )
 
     def _remember(
         self,
@@ -508,13 +559,23 @@ class _ProvenanceCapture:
     def _instrument_parameterized_subdag(
         self, modifier: parameterized_subdag, declaration: Callable[..., Any]
     ) -> None:
-        nested = []
+        sources: list[Callable[..., Any]] = []
+        nested: list[Callable[..., Any] | ModuleType] = []
         for item in modifier.load_from:
-            if not isinstance(item, FunctionType):
+            if isinstance(item, FunctionType):
+                sources.append(self._originals.get(item, item))
+                nested.append(self.clone(item))
+            elif isinstance(item, ModuleType):
+                module = ModuleType(item.__name__)
+                for name, function in find_functions(item):
+                    if not hasattr(function, "__sdax_shutdown__"):
+                        sources.append(self._originals.get(function, function))
+                        module.__dict__[name] = self.clone(function)
+                nested.append(module)
+            else:
                 raise ValueError(
-                    f"{declaration.__name__}: feasibility subdag requires function declarations"
+                    f"{declaration.__name__}: subdag requires function or module declarations"
                 )
-            nested.append(self.clone(item))
         modifier.load_from = tuple(nested)
         modifier.inputs = {name: copy(binding) for name, binding in modifier.inputs.items()}
         modifier.config = dict(modifier.config)
@@ -538,6 +599,7 @@ class _ProvenanceCapture:
             for generator in generators:
                 mount = object()
                 path = (*parent_path, generator.namespace)
+                self._instrument_subdag_collection(generator)
                 add_namespace = generator.add_namespace
                 generate = generator.generate_nodes
 
@@ -572,6 +634,7 @@ class _ProvenanceCapture:
                     _mount=mount,
                     _path=path,
                 ) -> list[node.Node]:
+                    self._reject_active_sources(sources)
                     self._mounts.append((_mount, _path))
                     try:
                         return list(_generate(fn, configuration))
@@ -606,11 +669,88 @@ class _ProvenanceCapture:
             MethodType(gather_with_capture, modifier),
         )
 
+    def _instrument_subdag(self, modifier: subdag) -> None:
+        sources = tuple(
+            self._originals.get(function, function)
+            for function in modifier.subdag_functions
+            if not hasattr(function, "__sdax_shutdown__")
+        )
+        modifier.subdag_functions = [
+            self.clone(function)
+            for function in modifier.subdag_functions
+            if not hasattr(function, "__sdax_shutdown__")
+        ]
+        modifier.inputs = {name: copy(binding) for name, binding in modifier.inputs.items()}
+        modifier.config = dict(modifier.config)
+        modifier.external_inputs = list(modifier.external_inputs)
+        self._instrument_subdag_collection(modifier)
+        add_namespace = modifier.add_namespace
+        generate = modifier.generate_nodes
+        contexts: list[tuple[object, object]] = []
+
+        def add_namespace_with_capture(
+            _instance: subdag,
+            nodes: list[node.Node],
+            namespace: str,
+            inputs: dict[str, Any] | None = None,
+            config: dict[str, Any] | None = None,
+        ) -> list[node.Node]:
+            if not contexts:
+                raise AssertionError("Subdag namespace operation escaped its mount")
+            mount, parent_mount = contexts[-1]
+            generated = list(add_namespace(nodes, namespace, inputs, config))
+            if len(generated) != len(nodes):
+                raise AssertionError("Subdag namespace operation changed node count")
+            if self._mount()[0] is not mount:
+                raise AssertionError("Subdag namespace operation escaped its mount")
+            for before, after in zip(nodes, generated, strict=True):
+                self._handoff(
+                    after,
+                    parent_mount,
+                    self._fact_before_namespace(before),
+                    before=before,
+                )
+            return generated
+
+        def generate_with_capture(
+            instance: subdag,
+            fn: Callable[..., Any],
+            configuration: dict[str, Any],
+        ) -> list[node.Node]:
+            self._reject_active_sources(sources)
+            parent_mount, parent_path = self._mount()
+            mount = object()
+            contexts.append((mount, parent_mount))
+            self._mounts.append((mount, (*parent_path, instance._derive_namespace(fn))))
+            try:
+                return list(generate(fn, configuration))
+            finally:
+                self._mounts.pop()
+                contexts.pop()
+
+        self._install_method(
+            modifier,
+            "add_namespace",
+            MethodType(add_namespace_with_capture, modifier),
+        )
+        self._install_method(
+            modifier,
+            "generate_nodes",
+            MethodType(generate_with_capture, modifier),
+        )
+
     def _instrument_modifier(
         self, snapshot: base.NodeTransformLifecycle, declaration: Callable[..., Any]
     ) -> base.NodeTransformLifecycle:
+        if type(snapshot) not in self.supported and type(snapshot) is not _EXCLUDED:
+            raise ValueError(
+                f"{declaration.__name__}: unsupported Hamilton decorator "
+                f"{type(snapshot).__name__}"
+            )
         if type(snapshot) is parameterized_subdag:
             self._instrument_parameterized_subdag(snapshot, declaration)
+        elif type(snapshot) is subdag:
+            self._instrument_subdag(snapshot)
         elif type(snapshot) is extract_fields:
             self._instrument_extract_fields(snapshot, declaration)
         elif type(snapshot) in (resolve, resolve_from_config):
@@ -648,10 +788,14 @@ class _ProvenanceCapture:
         self._originals[clone] = fn
         return clone
 
-    def clone(self, fn: Callable[..., Any]) -> Callable[..., Any]:
+    def clone(
+        self, fn: Callable[..., Any], *, validate: bool = True
+    ) -> Callable[..., Any]:
         existing = self._clones.get(fn)
         if existing is not None:
             return existing
+        if validate and self._validate_declaration is not None:
+            self._validate_declaration(fn)
         clone = _copy_function(fn)
         self._clones[fn] = clone
         self._originals[clone] = fn
@@ -729,6 +873,7 @@ class _ProvenanceCapture:
         self._helper_clones.clear()
         self._originals.clear()
         self._mounts.clear()
+        self._active_declarations.clear()
 
 
 def _copy_function(fn: Callable[..., Any]) -> FunctionType:
