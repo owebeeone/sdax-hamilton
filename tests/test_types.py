@@ -49,6 +49,14 @@ class RecursivePayload(TypedDict):
     child: NotRequired["RecursivePayload"]
 
 
+class NestedPayload(TypedDict):
+    child: NotRequired[Payload]
+
+
+class DifferentPayload(TypedDict, total=False):
+    required: Required[list[int]]
+
+
 @pytest.mark.parametrize(
     "annotation, good, bad",
     [
@@ -92,8 +100,10 @@ def test_typed_dict_checks_required_optional_and_recursive_fields():
     assert not accepts({"required": [1], "optional": {"kind": 1}}, Payload)
     assert accepts({"value": 3}, ExtensionPayload)
     assert not accepts({"value": "wrong"}, ExtensionPayload)
+    assert accepts({"child": {"required": [1]}}, NestedPayload)
+    assert not accepts({"child": {"required": ["wrong"]}}, NestedPayload)
 
-    cyclic = {"name": "root"}
+    cyclic: dict[str, object] = {"name": "root"}
     cyclic["child"] = cyclic
     assert accepts(cyclic, RecursivePayload)
 
@@ -115,6 +125,15 @@ class FuturePayload(TypedDict, total=False):
     assert accepts({"required": [1]}, module.FuturePayload)
     assert not accepts({}, module.FuturePayload)
     assert not accepts({"required": ["wrong"]}, module.FuturePayload)
+
+
+def test_typed_dict_edges_are_exact_except_for_bare_dict_consumers():
+    assert compatible(Payload, Payload)
+    assert compatible(Payload, dict)
+    assert compatible(Payload, object)
+    assert not compatible(dict, Payload)
+    assert not compatible(Payload, DifferentPayload)
+    assert not compatible(Payload, dict[str, object])
 
 
 @pytest.mark.parametrize("value", [None, object(), 1, ["anything"]])
@@ -188,7 +207,7 @@ def test_empty_tuple_edges_require_empty_producer(produced, required, expected):
 
 @pytest.mark.parametrize("required", ["tuple[()]", "Tuple[()]"])
 def test_nonempty_tuple_edge_rejected_before_callbacks(module_factory, required):
-    calls = []
+    calls: list[str] = []
     module = module_factory(
         f"""
 from typing import Tuple
@@ -215,7 +234,7 @@ def result(source: {required}) -> int:
         Callable[[int], str],
         Iterable[int],
         Mapping[str, int],
-        list[TypeVar("Item")],
+        list[TypeVar("Item")],  # type: ignore[misc]
         Literal[1.5],
         "UnresolvedForwardReference",
     ],
@@ -247,7 +266,7 @@ def test_invalid_edge_and_default_rejected_before_execution(module_factory, sour
 
 @pytest.mark.asyncio
 async def test_heterogeneous_tuple_input_checked_before_callback(module_factory):
-    calls = []
+    calls: list[str] = []
     mod = module_factory(
         """
 def result(pair: tuple[int, str]) -> str:

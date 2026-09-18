@@ -30,10 +30,14 @@ def _typed_dict_fields(typ: Any) -> tuple[tuple[str, Any, bool], ...]:
         hints = get_type_hints(typ, include_extras=True)
     except (NameError, TypeError) as exc:
         raise TypeError(f"Unsupported TypedDict annotation: {typ!r}") from exc
-    required = getattr(typ, "__required_keys__", frozenset())
-    optional = getattr(typ, "__optional_keys__", frozenset())
-    if not isinstance(required, (set, frozenset)) or not isinstance(optional, (set, frozenset)):
+    raw_required: Any = getattr(typ, "__required_keys__", frozenset())
+    raw_optional: Any = getattr(typ, "__optional_keys__", frozenset())
+    if not isinstance(raw_required, (set, frozenset)) or not isinstance(
+        raw_optional, (set, frozenset)
+    ):
         raise TypeError(f"Unsupported TypedDict annotation: {typ!r}")
+    required: set[Any] | frozenset[Any] = raw_required
+    optional: set[Any] | frozenset[Any] = raw_optional
     fields = []
     for name, field_type in hints.items():
         if not isinstance(name, str):
@@ -161,6 +165,12 @@ def compatible(produced: Any, required: Any) -> bool:
     required = type(None) if required is None else required
     if produced is Any or required is Any or produced == required:
         return True
+    if is_typeddict(produced):
+        # A TypedDict is a runtime dict, but proving structural compatibility
+        # with another TypedDict or a parameterized dictionary is out of scope.
+        return required in (dict, object)
+    if is_typeddict(required):
+        return False
     po, ro = get_origin(produced), get_origin(required)
     if po in (Union, types.UnionType):
         return all(compatible(arg, required) for arg in get_args(produced))
