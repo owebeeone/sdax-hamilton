@@ -89,11 +89,23 @@ def correct_copied_async_output_pipelines(fn: Callable[..., Any]) -> None:
     if not inspect.iscoroutinefunction(fn):
         return
     for modifier in getattr(fn, "transform", ()):
-        if type(modifier) is not pipe_output or getattr(modifier, _CORRECTION_MARKER, False):
-            continue
-        original = modifier.transform_node
-        modifier.transform_node = MethodType(_corrected_transform_node(original), modifier)
-        setattr(modifier, _CORRECTION_MARKER, True)
+        correct_copied_async_output_pipeline(fn, modifier)
+
+
+def correct_copied_async_output_pipeline(
+    fn: Callable[..., Any], modifier: Any
+) -> None:
+    """Correct one exact copied output pipeline returned by a delayed resolver."""
+    _check_hamilton_version()
+    if (
+        not inspect.iscoroutinefunction(fn)
+        or type(modifier) is not pipe_output
+        or getattr(modifier, _CORRECTION_MARKER, False)
+    ):
+        return
+    original = modifier.transform_node
+    modifier.transform_node = MethodType(_corrected_transform_node(original), modifier)
+    setattr(modifier, _CORRECTION_MARKER, True)
 
 
 def _copy_metadata_container(value: Any) -> Any:
@@ -147,8 +159,9 @@ def _copy_applicable(
     }
     snapshot.resolvers = [_copy_config_resolver(resolver) for resolver in applicable.resolvers]
     snapshot.target = _copy_metadata_container(applicable.target)
-    if type(applicable.fn) is FunctionType:
-        snapshot.fn = copy_function(applicable.fn)
+    if type(applicable.fn) is not FunctionType:
+        raise ValueError("pipeline steps require plain functions")
+    snapshot.fn = copy_function(applicable.fn)
     # ``target_fn`` points at the import-time mutation target. It is not called
     # during this expansion, so retaining it does not retain executable helper
     # code or recursively admit that target's decorators.
@@ -189,18 +202,27 @@ def snapshot_copied_macro_bindings(
         return cached
 
     for modifier in getattr(fn, "generate", ()):
-        if type(modifier) is does:
-            modifier.argument_mapping = dict(modifier.argument_mapping)
-            if type(modifier.replacing_function) is FunctionType:
-                modifier.replacing_function = copy_helper(modifier.replacing_function)
+        snapshot_copied_macro_modifier(modifier, copy_function=copy_helper)
     for lifecycle in ("inject", "transform"):
         for modifier in getattr(fn, lifecycle, ()):
-            if type(modifier) in _PIPE_MODIFIERS:
-                modifier.transforms = tuple(
-                    _copy_applicable(item, copy_helper) for item in modifier.transforms
-                )
-                for applicable in modifier.transforms:
-                    _install_selected_step_contract(applicable)
+            snapshot_copied_macro_modifier(modifier, copy_function=copy_helper)
+
+
+def snapshot_copied_macro_modifier(
+    modifier: Any, *, copy_function: Callable[[FunctionType], FunctionType]
+) -> None:
+    """Snapshot one exact copied macro modifier without resolving or expanding it."""
+    if type(modifier) is does:
+        modifier.argument_mapping = dict(modifier.argument_mapping)
+        if type(modifier.replacing_function) is not FunctionType:
+            raise ValueError("does replacements require plain functions")
+        modifier.replacing_function = copy_function(modifier.replacing_function)
+    elif type(modifier) in _PIPE_MODIFIERS:
+        modifier.transforms = tuple(
+            _copy_applicable(item, copy_function) for item in modifier.transforms
+        )
+        for applicable in modifier.transforms:
+            _install_selected_step_contract(applicable)
 
 
 def _function_contract(
@@ -316,5 +338,10 @@ def validate_copied_macro_bindings(fn: Callable[..., Any]) -> None:
     ``does`` wrapper contract before its generated callable loses that identity.
     """
     for modifier in getattr(fn, "generate", ()):
-        if type(modifier) is does:
-            _validate_does_binding(fn, modifier)
+        validate_copied_macro_modifier(fn, modifier)
+
+
+def validate_copied_macro_modifier(fn: Callable[..., Any], modifier: Any) -> None:
+    """Preflight one exact copied macro modifier returned by a delayed resolver."""
+    if type(modifier) is does:
+        _validate_does_binding(fn, modifier)
