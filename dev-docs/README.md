@@ -13,6 +13,7 @@ Created: 18 September 2026.
 | [Architecture review A6b](Decorator-Support-Plan-ReviewA6b.md) | Independent code-minimization review, first-pass findings and secondary assessment. |
 | [Decorator inventory](Decorator-Support-Inventory.md) | Pinned decorator/helper/plugin inventory, confirmed upstream defects and implementation risks. |
 | [Pipeline correction](Pipeline-Correction.md) | U1's version-bounded private correction and phase-C integration contract. |
+| [Macro capture](Macro-Capture.md) | Phase-C copied binding containers and P2 provenance integration contract. |
 | [Machine-readable work DAG](decorator-support-dag.json) | Task IDs, ownership roles, prerequisites and release-readiness gates. |
 | [SDAX core execution proposal](../../sdax/dev-docs/Core-Execution-Contracts-Proposal.md) | Separate proposal for cancellation outcomes, backpressure and owned external work; optional workspace-member reference, not a prerequisite for static decorator support. |
 | [Release review 0.1.0](release-review-0.1.0.md) | Independent implementation review, concrete findings and regression coverage. |
