@@ -24,7 +24,7 @@ from hamilton.function_modifiers.macros import (
     pipe_input,
     pipe_output,
 )
-from hamilton.function_modifiers.recursive import subdag
+from hamilton.function_modifiers.recursive import subdag, with_columns_base
 from hamilton.function_modifiers.validation import (
     BaseDataValidationDecorator,
     check_output,
@@ -47,6 +47,7 @@ from ._hamilton_validation import (
     correct_validation_representation,
 )
 from ._model import GeneratedRole, InputSpec
+from ._optional_profiles import identify_optional_modifier, validate_optional_profile
 
 _LIFECYCLES = (
     base.NodeResolver,
@@ -616,10 +617,120 @@ class _ProvenanceCapture:
             MethodType(gather_with_capture, modifier),
         )
 
+    def _instrument_with_columns(
+        self,
+        modifier: with_columns_base,
+        declaration: Callable[..., Any],
+        profile: str,
+    ) -> None:
+        validate_optional_profile(profile)
+        nested_originals: dict[FunctionType, FunctionType] = {}
+        nested = []
+        for original in modifier.subdag_functions:
+            if type(original) is not FunctionType:
+                raise ValueError("with_columns requires plain nested functions")
+            if hasattr(original, "__sdax_shutdown__"):
+                continue
+            cloned = self.clone(original)
+            if not isinstance(cloned, FunctionType):
+                raise AssertionError("Copied with_columns declaration is not a function")
+            nested.append(cloned)
+            nested_originals[cloned] = original
+        modifier.subdag_functions = nested
+        for name in ("select", "initial_schema", "config_required"):
+            value = getattr(modifier, name)
+            if value is not None and type(value) is not list:
+                raise ValueError(f"with_columns {name} must be a list or None")
+            setattr(modifier, name, None if value is None else list(value))
+
+        chain_subdag_nodes = modifier.chain_subdag_nodes
+        inject_nodes = modifier.inject_nodes
+        before_namespace: list[tuple[node.Node, _CapturedFact]] = []
+
+        def fact_before_namespace(entry: node.Node) -> _CapturedFact:
+            incoming = self._fact_from_callable(entry)
+            if incoming is not None:
+                return incoming
+            origins = set()
+            for origin in entry.originating_functions or ():
+                if not isinstance(origin, FunctionType):
+                    continue
+                original = nested_originals.get(origin)
+                if original is not None:
+                    origins.add(original)
+            if len(origins) > 1:
+                raise AssertionError("with_columns node has multiple nested origins")
+            mount, _ = self._mount()
+            if origins:
+                return _CapturedFact(
+                    GeneratedRole.VALUE,
+                    origins.pop(),
+                    True,
+                    False,
+                    entry.name,
+                    mount,
+                )
+            return _CapturedFact(
+                GeneratedRole.VALUE,
+                declaration,
+                False,
+                True,
+                entry.name,
+                mount,
+            )
+
+        def chain_with_capture(
+            instance: with_columns_base,
+            fn: Callable[..., Any],
+            inject_parameter: str,
+            generated_nodes: Collection[node.Node],
+        ) -> tuple[list[node.Node], str]:
+            generated, current = chain_subdag_nodes(fn, inject_parameter, generated_nodes)
+            generated = list(generated)
+            before_namespace[:] = [
+                (entry, fact_before_namespace(entry)) for entry in generated
+            ]
+            return generated, current
+
+        def inject_with_capture(
+            instance: with_columns_base,
+            params: dict[str, type[type]],
+            configuration: dict[str, Any],
+            fn: Callable[..., Any],
+        ) -> tuple[list[node.Node], dict[str, str]]:
+            before_namespace.clear()
+            generated, renames = inject_nodes(params, configuration, fn)
+            generated = list(generated)
+            if len(generated) != len(before_namespace):
+                raise AssertionError("with_columns namespace operation changed node count")
+            mount, _ = self._mount()
+            for after, (before, fact) in zip(
+                generated, before_namespace, strict=True
+            ):
+                self._handoff(after, mount, fact, before=before)
+            return generated, renames
+
+        self._install_method(
+            modifier,
+            "chain_subdag_nodes",
+            MethodType(chain_with_capture, modifier),
+        )
+        self._install_method(
+            modifier,
+            "inject_nodes",
+            MethodType(inject_with_capture, modifier),
+        )
+
     def _instrument_modifier(
         self, snapshot: base.NodeTransformLifecycle, declaration: Callable[..., Any]
     ) -> base.NodeTransformLifecycle:
-        if type(snapshot) is parameterized_subdag:
+        optional_profile = identify_optional_modifier(snapshot)
+        if (
+            optional_profile in ("pandas", "polars")
+            and isinstance(snapshot, with_columns_base)
+        ):
+            self._instrument_with_columns(snapshot, declaration, optional_profile)
+        elif type(snapshot) is parameterized_subdag:
             self._instrument_parameterized_subdag(snapshot, declaration)
         elif type(snapshot) is extract_fields:
             self._instrument_extract_fields(snapshot, declaration)
