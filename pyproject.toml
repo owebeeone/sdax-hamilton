@@ -22,7 +22,7 @@ classifiers = [
 
 [project.urls]
 Repository = "https://github.com/owebeeone/sdax-hamilton"
-Documentation = "https://github.com/owebeeone/sdax-hamilton/blob/main/docs/API.md"
+Documentation = "https://owebeeone.github.io/sdax-hamilton/"
 Issues = "https://github.com/owebeeone/sdax-hamilton/issues"
 
 [project.optional-dependencies]

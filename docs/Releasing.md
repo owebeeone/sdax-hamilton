@@ -30,3 +30,28 @@ uploading; a successful build does not prove the PyPI publisher configuration.
 Action dependencies are pinned to reviewed commits. Build and test tooling ranges
 are declared in the workflow and package extras; dependency compatibility remains
 the exact SDAX/Hamilton pair documented in [Compatibility](Compatibility.md).
+
+## Documentation site
+
+The public documentation is hosted at
+[owebeeone.github.io/sdax-hamilton](https://owebeeone.github.io/sdax-hamilton/)
+using MkDocs Material, matching the GWZ documentation layout. It follows `main`
+and labels development coverage separately from the published alpha.
+
+To build or preview it locally:
+
+```sh
+python -m pip install -r docs-requirements.txt
+python -m mkdocs build --strict
+python -m mkdocs serve
+```
+
+Generated `site/` output is ignored. In this GWZ workspace, place local generated
+output outside the repository with `mkdocs build --strict --site-dir <output>`.
+Only public files in `docs/` become site pages; design and review records in
+`dev-docs/` remain in the repository and are linked where relevant.
+
+The Documentation workflow builds changed docs on pull requests, then publishes
+successful builds from `main` to the `github-pages` environment. It can also be
+run manually on `main`. Configure the repository's Pages source as **GitHub
+Actions**. Publishing documentation does not create a package release or a tag.

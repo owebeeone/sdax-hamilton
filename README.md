@@ -8,6 +8,10 @@ Import the real supported Hamilton decorators, then add `execution` policies and
 reusable SDAX plan. Each invocation gets its own values and acquisition records.
 SDAX owns scheduling, retries, timeouts and reverse dependency shutdown.
 
+**[Documentation](https://owebeeone.github.io/sdax-hamilton/)** ·
+[Quick start](https://owebeeone.github.io/sdax-hamilton/QuickStart/) ·
+[Retries, jitter and shutdown](https://owebeeone.github.io/sdax-hamilton/Lifecycle/)
+
 **Status:** experimental release `0.1.0`. The API is not frozen. Before 1.0,
 breaking API changes use a new minor version; patch versions preserve the documented
 API except for corrections to incorrect behavior.

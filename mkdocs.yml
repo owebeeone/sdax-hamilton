@@ -1,0 +1,54 @@
+site_name: sdax-hamilton
+site_description: Hamilton decorators with Python SDAX retries, jitter, timeouts and dependency-ordered shutdown.
+site_url: https://owebeeone.github.io/sdax-hamilton/
+repo_url: https://github.com/owebeeone/sdax-hamilton
+repo_name: owebeeone/sdax-hamilton
+edit_uri: edit/main/docs/
+copyright: MIT licensed
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - content.action.edit
+    - search.suggest
+    - search.highlight
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+
+nav:
+  - Home: index.md
+  - Quick Start: QuickStart.md
+  - Retries and Shutdown: Lifecycle.md
+  - API Guide: API.md
+  - Compatibility: Compatibility.md
+  - Contributing and Publishing: Releasing.md

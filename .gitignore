@@ -28,3 +28,6 @@ uv.lock
 
 # Local exploratory work
 /scratch/
+
+# Generated documentation site
+/site/
