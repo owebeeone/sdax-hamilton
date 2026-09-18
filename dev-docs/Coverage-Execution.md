@@ -61,8 +61,21 @@ can change public compatibility claims.
 |---|---|---|
 | P0 | Complete | Reviewed-plan requirements mapped to existing implementation above; bounded initial ownership assigned |
 | P1 | Complete for initial lanes | Four new oracle characterizations pass; full source suite 179 passed on Python 3.12.12; changed fixtures pass Ruff |
-| S | In progress | Initial read-only analysis, followed by isolated composition proof |
-| A | In progress | Initial read-only analysis; implementation begins when clone is ready |
+| S | Passed bounded feasibility gate | Independent safety and architecture reviewers approve P2/P3; proof commit `827cda8`; production selection/ownership enforcement remains P4/E |
+| A | Under QA review | Alias/config/metadata implementation `326c18e`; 190 tests, Ruff and mypy pass in its clone |
 | U1 | In progress | Pinned source analysis; isolated correction follows clone readiness |
 | U2 | In progress | Pinned source analysis; isolated correction follows clone readiness |
 | QA onward | Planned | Follow the reviewed DAG; no early activation of unqualified families |
+
+Initial local clones are ready: `ham-provenance`, `ham-aliases`, `ham-pipelines`
+and `ham-loaders`, each on its matching `codex/ham-*` member branch. S started from
+the checkpoint; the other lanes include conformance foundation commit `f9dd0c2`.
+GWZ 1.0.14 does not implement dry-run family merges; integration therefore reviews
+committed diffs before using the normal coordinated merge. A dirty member is
+rejected, so review records are committed before importing worker changes.
+
+S reviews: [safety](Provenance-Feasibility-ReviewA6a.md) and
+[architecture](Provenance-Feasibility-ReviewA6b.md). Their original frozen hashes
+remain recorded. The author subsequently strengthened the failure/role/count
+witnesses and clarified pinned assumptions; these refinements do not broaden the
+bounded gate decision or activate the demonstrated decorator families.
