@@ -1,9 +1,23 @@
 """The explicit declaration type subset, independent of Hamilton internals."""
 
 from collections.abc import Callable, Iterable, Mapping
-from typing import Annotated, Any, Dict, List, Literal, Protocol, Set, Tuple, TypeVar
+from typing import (
+    Annotated,
+    Any,
+    Dict,
+    List,
+    Literal,
+    NotRequired,
+    Protocol,
+    Required,
+    Set,
+    Tuple,
+    TypedDict,
+    TypeVar,
+)
 
 import pytest
+from typing_extensions import TypedDict as ExtensionsTypedDict
 
 from sdax_hamilton import Driver
 from sdax_hamilton._types import accepts, compatible, validate_type
@@ -19,6 +33,20 @@ class Child(Parent):
 
 class Shape(Protocol):
     def draw(self) -> None: ...
+
+
+class Payload(TypedDict, total=False):
+    required: Required[list[int]]
+    optional: NotRequired[dict[str, str]]
+
+
+class ExtensionPayload(ExtensionsTypedDict):
+    value: int
+
+
+class RecursivePayload(TypedDict):
+    name: str
+    child: NotRequired["RecursivePayload"]
 
 
 @pytest.mark.parametrize(
@@ -50,6 +78,43 @@ def test_runtime_type_subset(annotation, good, bad):
     validate_type(annotation)
     assert accepts(good, annotation)
     assert not accepts(bad, annotation)
+
+
+def test_typed_dict_checks_required_optional_and_recursive_fields():
+    validate_type(Payload)
+    validate_type(ExtensionPayload)
+    validate_type(RecursivePayload)
+
+    assert accepts({"required": [1], "optional": {"kind": "test"}}, Payload)
+    assert accepts({"required": [1]}, Payload)
+    assert not accepts({}, Payload)
+    assert not accepts({"required": ["wrong"]}, Payload)
+    assert not accepts({"required": [1], "optional": {"kind": 1}}, Payload)
+    assert accepts({"value": 3}, ExtensionPayload)
+    assert not accepts({"value": "wrong"}, ExtensionPayload)
+
+    cyclic = {"name": "root"}
+    cyclic["child"] = cyclic
+    assert accepts(cyclic, RecursivePayload)
+
+
+def test_future_typed_dict_annotations_preserve_required_field_markers(module_factory):
+    module = module_factory(
+        """
+from __future__ import annotations
+
+from typing import NotRequired, Required, TypedDict
+
+class FuturePayload(TypedDict, total=False):
+    required: Required[list[int]]
+    optional: NotRequired[str]
+"""
+    )
+
+    validate_type(module.FuturePayload)
+    assert accepts({"required": [1]}, module.FuturePayload)
+    assert not accepts({}, module.FuturePayload)
+    assert not accepts({"required": ["wrong"]}, module.FuturePayload)
 
 
 @pytest.mark.parametrize("value", [None, object(), 1, ["anything"]])
