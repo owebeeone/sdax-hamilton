@@ -157,6 +157,20 @@ def test_binding_capture_admits_direct_group_values_and_source_defaults():
     assert binding.default == 3
 
 
+def test_binding_capture_admits_optional_list_and_dict_groups():
+    def list_result(values: list[int] | None) -> int:
+        return sum(values or [])
+
+    def dict_result(values: dict[str, int] | None) -> int:
+        return sum((values or {}).values())
+
+    list_captured = _capture(list_result, inject(values=group(source("left"), value(2))))
+    dict_captured = _capture(dict_result, inject(values=group(one=source("right"), two=value(3))))
+
+    assert list_captured["list_result"]["left"].requirements == (int,)
+    assert dict_captured["dict_result"]["right"].requirements == (int,)
+
+
 def test_binding_capture_tracks_parameterize_extract_columns_outputs():
     from hamilton.function_modifiers import ParameterizedExtract, parameterize_extract_columns
 
