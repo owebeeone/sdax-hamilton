@@ -41,7 +41,10 @@ from ._hamilton_pipeline import (
     validate_copied_macro_bindings,
     validate_copied_macro_modifier,
 )
-from ._hamilton_validation import correct_validation_gate
+from ._hamilton_validation import (
+    correct_validation_gate,
+    correct_validation_representation,
+)
 from ._model import GeneratedRole, InputSpec
 
 _LIFECYCLES = (
@@ -239,7 +242,11 @@ class _ProvenanceCapture:
         )
 
     def _instrument_validation(
-        self, modifier: BaseDataValidationDecorator, declaration: Callable[..., Any]
+        self,
+        modifier: BaseDataValidationDecorator,
+        declaration: Callable[..., Any],
+        *,
+        profile: str | None = None,
     ) -> None:
         transform = modifier.transform_node
 
@@ -254,7 +261,10 @@ class _ProvenanceCapture:
             public_name = entry.name if incoming is None else incoming.public_name
             captured_declaration = declaration if incoming is None else incoming.declaration
             generated = list(
-                correct_validation_gate(transform(entry, configuration, fn))
+                correct_validation_representation(
+                    correct_validation_gate(transform(entry, configuration, fn)),
+                    profile,
+                )
             )
             for evidence in generated[:-2]:
                 self._remember(
