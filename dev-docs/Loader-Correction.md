@@ -52,3 +52,23 @@ upgraded and its source plus the maintained regression cases show that the
 generated raw and projection annotations are already correct. A version mismatch
 must continue to fail closed through `hamilton_compat._check_version`; it is not
 an instruction to apply this correction to another Hamilton release.
+
+A selected `SaveToDecorator` sink returns fresh metadata. Its ordinary input
+edge keeps an owned producer alive through `save_data`, and cleanup completes
+before that metadata is returned, but the metadata itself does not borrow the
+producer and may be selected with `execute()`. This depends on the bounded
+trusted-callback contract shared with ordinary Hamilton functions: a saver must
+not publish a live producer or resource alias inside its metadata. Arbitrary
+aliases in callback values are not statically detectable.
+
+SDAX default execution policies and all shutdown targets attach only to actual
+declaration calls. A `dataloader` policy targeted through its public projection
+name maps to the raw tuple call, while the projection remains policy-free. An
+explicit target may also name the admitted `load_from` raw loader node or the
+`save_to` metadata sink. Those two synthetic nodes carry a construction-only
+policy-target fact; it routes retry and timeout only to the captured node
+callback without turning it into an acquisition or changing shutdown targeting.
+The `datasaver` node is already an actual saver declaration. Registry lookup and
+class selection are fixed construction-time facts. The selected adapter instance
+is created inside the retried, timed loader or saver callback on every attempt,
+so policy covers that factory call as well as `load_data` or `save_data`.
