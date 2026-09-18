@@ -71,6 +71,12 @@ class PreparedPlan:
         for name, value in replacements.items():
             if not accepts(value, shape.nodes[name].output_type):
                 raise TypeError(f"Invalid override: {name}")
+            for consumer in shape.active:
+                binding = shape.nodes[consumer].inputs.get(name)
+                if binding is not None and not all(
+                    accepts(value, requirement) for requirement in binding.effective_requirements
+                ):
+                    raise TypeError(f"Invalid override: {name}")
         return Context({**shape.config, **supplied, **replacements})
 
     @asynccontextmanager

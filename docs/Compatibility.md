@@ -19,7 +19,7 @@ Hamilton `Driver.execute`, `AsyncDriver`, lifecycle adapters or remote executors
 | Plain typed synchronous and asynchronous functions | Named parameters and annotated results; positional-only parameters, variadics, generators and async generators rejected. |
 | Hamilton `config` | `when`, `when_not`, `when_in`, `when_not_in` and custom callable predicates; predicates are trusted construction code and resolve once per declaration context. Owned acquisitions cannot be replaced by config values. |
 | Hamilton `hamilton_exclude` | Excluded helpers need not be graph typed. An excluded declaration cannot own a frontend shutdown. |
-| Hamilton `tag`, `tag_outputs`, `schema.output` | Resolved tags are retained on the immutable frontend node; they do not install Hamilton execution hooks. |
+| Hamilton `tag`, `tag_outputs`, `schema.output` | Resolved tags are retained on the isolated frontend node snapshot; they do not install Hamilton execution hooks. |
 | Hamilton `cache`, `ray_remote_options` | Resolved cache and Ray tags are retained as inactive metadata. They do not enable caching, connect to Ray, or submit remote work. |
 | Hamilton `inject` | Direct `value(...)` and `source(...)` bindings. |
 | Hamilton `parameterize` and convenience aliases | Direct `parameterize`, `parameterize_values`, `parameterize_sources`, `parametrized`, `parametrized_input` and `parameterized_inputs` expansion with explicit policy/ownership targets where ambiguous. Legacy aliases retain Hamilton's deprecation behavior. |
