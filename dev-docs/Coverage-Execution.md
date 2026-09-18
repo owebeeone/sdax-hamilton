@@ -186,3 +186,19 @@ pipeline, recursive/model/resolver, and loader/saver hooks; the second Sol lane
 owns validation and its optional representations. Method ownership permits these
 lanes to edit their distinct hooks concurrently. Root serializes GWZ commits and
 merges, then checks compositions before widening public admission.
+
+Checkpoint `edb3bf2` merges C's reviewed selected-step contract capture. Its 22
+Driver cases use an explicitly temporary, finite admission harness while QB is
+closed; the public allowlist is unchanged. The complete integrated suite passes
+341 tests with one opt-in Spark module skipped, plus lint and package/authoring
+mypy. Both [pipeline safety](Pipeline-Qualification-ReviewA6a.md) and
+[pipeline architecture](Pipeline-Qualification-ReviewA6b.md) reviews record the
+required-wins default fix and preserved conjunctive consumer requirements. The
+redundant U1 version probe is removed in favor of the enclosing compiler guard.
+QB must remove all such provisional admission harnesses and run public Driver
+construction before changing the compatibility claim.
+
+CI now isolates five optional profiles on Python 3.12 using pinned test extras.
+The Spark job installs a full Java 21 runtime and keeps its Pandas 2 environment
+separate from the Pandas/Pandera 3 profiles. These jobs provision qualification;
+their presence does not certify unintegrated family implementations.
