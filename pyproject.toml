@@ -27,6 +27,12 @@ Issues = "https://github.com/owebeeone/sdax-hamilton/issues"
 
 [project.optional-dependencies]
 test = ["pytest>=8,<10", "pytest-asyncio>=0.24,<2", "ruff>=0.9,<1", "mypy>=1.14,<2"]
+# Qualification environments; installing an extra does not activate a decorator.
+test-pandas = ["pandas==3.0.6"]
+test-polars = ["polars==1.44.2"]
+test-pydantic = ["pydantic==2.13.5"]
+test-pandera = ["pandera==0.33.1", "pandas==3.0.6"]
+test-spark = ["pyspark==4.0.1", "pandas==2.3.3", "pyarrow==21.0.0"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sdax_hamilton"]
