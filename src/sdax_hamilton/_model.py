@@ -1,7 +1,7 @@
 """Immutable frontend graph representation, independent of Hamilton internals."""
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
 
@@ -21,6 +21,7 @@ class NodeSpec:
     fn: Callable[..., Any]
     output_type: Any
     inputs: Mapping[str, InputSpec]
+    tags: Mapping[str, Any] = field(default_factory=dict)
     policy: Policy = Policy()
     release: Callable[..., Any] | None = None
     release_policy: Policy = Policy()
@@ -29,3 +30,10 @@ class NodeSpec:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "inputs", MappingProxyType(dict(self.inputs)))
+        object.__setattr__(
+            self,
+            "tags",
+            MappingProxyType(
+                {key: list(value) if isinstance(value, list) else value for key, value in self.tags.items()}
+            ),
+        )
