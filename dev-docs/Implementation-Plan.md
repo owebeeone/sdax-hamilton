@@ -4,6 +4,10 @@ Date: 18 September 2026. Status: original implementation proposal, retained as
 the roadmap. See [Implementation-Status.md](Implementation-Status.md) for the
 current alpha implementation, executed validation and remaining work.
 
+For expansion beyond the released 0.1.0 subset, use the newer
+[decorator support plan](Decorator-Support-Plan.md), its inventory and dependency
+DAG. That plan supersedes this document's broad deferred-decorator ordering.
+
 ## Scope and working rules
 
 - Implement an optional frontend package; leave the Python SDAX core API minimal.

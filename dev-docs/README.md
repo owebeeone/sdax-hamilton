@@ -7,6 +7,11 @@ Created: 18 September 2026.
 | [Implementation status](Implementation-Status.md) | Current package scope, completed validation and remaining release gates. |
 | [Current API](../docs/API.md) | Implemented alpha API and lifecycle contracts. |
 | [Compatibility](../docs/Compatibility.md) | Exact admitted declarations, type checks and limitations. |
+| [Decorator support plan](Decorator-Support-Plan.md) | New phased roadmap and dependency DAG for all shipped Hamilton decorators; parallel GWZ local-clone procedure. |
+| [Safety review A6a](Decorator-Support-Plan-ReviewA6a.md) | Independent safety review, first-pass findings and secondary assessment. |
+| [Architecture review A6b](Decorator-Support-Plan-ReviewA6b.md) | Independent code-minimization review, first-pass findings and secondary assessment. |
+| [Decorator inventory](Decorator-Support-Inventory.md) | Pinned decorator/helper/plugin inventory, confirmed upstream defects and implementation risks. |
+| [Machine-readable work DAG](decorator-support-dag.json) | Task IDs, ownership roles, prerequisites and release-readiness gates. |
 | [Release review 0.1.0](release-review-0.1.0.md) | Independent implementation review, concrete findings and regression coverage. |
 | [Releasing](../docs/Releasing.md) | Artifact qualification and PyPI trusted publishing procedure. |
 | [API design](API-Design.md) | Architecture, proposed declarations, execution and ownership semantics, supported subset, and unresolved contracts. |

@@ -1,0 +1,501 @@
+{
+  "schema_version": 2,
+  "baseline": {
+    "sdax_hamilton": "0.1.0",
+    "commit": "2ef785acc0ff8330436e4327e7993da57015d92f",
+    "apache_hamilton": "1.90.0",
+    "sdax": "0.7.2",
+    "gwz": "1.0.14"
+  },
+  "semantics": "Dependencies govern completion/integration; consumes names the exact required deliverable for every edge. Tests may start against provisional contracts. Feasibility tasks must pass before dependent implementation activates. Family completion alone does not activate support. Optional combinations need profile-specific composition cases. Gates do not publish automatically.",
+  "isolation": "gwz local clone; no git worktrees",
+  "tasks": [
+    {
+      "id": "P0",
+      "title": "Goals trust rules and baseline ledger",
+      "depends_on": [],
+      "consumes": {},
+      "owner_role": "integrator",
+      "kind": "foundation",
+      "status": "planned"
+    },
+    {
+      "id": "P1",
+      "title": "Existing conformance oracle and fixtures",
+      "depends_on": [
+        "P0"
+      ],
+      "consumes": {
+        "P0": "Baseline requirements, trust rules and provisional responsibility map"
+      },
+      "owner_role": "conformance",
+      "kind": "foundation",
+      "status": "planned"
+    },
+    {
+      "id": "A",
+      "title": "Aliases config and metadata",
+      "depends_on": [
+        "P1"
+      ],
+      "consumes": {
+        "P1": "Current-shape conformance fixtures and baseline ownership assertions"
+      },
+      "owner_role": "metadata",
+      "kind": "family",
+      "status": "planned"
+    },
+    {
+      "id": "QA",
+      "title": "Convenience release gate",
+      "depends_on": [
+        "A"
+      ],
+      "consumes": {
+        "A": "Qualified convenience forms and unchanged baseline lifecycle contracts"
+      },
+      "owner_role": "integrator",
+      "kind": "gate",
+      "status": "planned"
+    },
+    {
+      "id": "S",
+      "title": "Compositional provenance feasibility",
+      "depends_on": [
+        "P1"
+      ],
+      "consumes": {
+        "P1": "Counted resolver and resource composition fixtures"
+      },
+      "owner_role": "compiler",
+      "kind": "feasibility",
+      "status": "planned"
+    },
+    {
+      "id": "P2",
+      "title": "Evolve NodeSpec lowering and provenance",
+      "depends_on": [
+        "S"
+      ],
+      "consumes": {
+        "S": "Demonstrated single-resolution capture seam and minimal missing facts"
+      },
+      "owner_role": "compiler",
+      "kind": "foundation",
+      "status": "planned"
+    },
+    {
+      "id": "P3",
+      "title": "Bounded shared binding and type contracts",
+      "depends_on": [
+        "S"
+      ],
+      "consumes": {
+        "S": "Original binding requirements and representation cases from the slice"
+      },
+      "owner_role": "types",
+      "kind": "foundation",
+      "status": "planned"
+    },
+    {
+      "id": "P4",
+      "title": "Generated ownership selection and policy",
+      "depends_on": [
+        "P2",
+        "P3"
+      ],
+      "consumes": {
+        "P2": "Acquisition, borrow and generated-role facts in existing NodeSpec",
+        "P3": "Original consumer requirements and checked binding contracts"
+      },
+      "owner_role": "lifecycle",
+      "kind": "foundation",
+      "status": "planned"
+    },
+    {
+      "id": "U1",
+      "title": "Async pipeline correction",
+      "depends_on": [
+        "P1"
+      ],
+      "consumes": {
+        "P1": "Pinned async pipeline reproduction and execution oracle"
+      },
+      "owner_role": "pipeline-correction",
+      "kind": "correction",
+      "status": "planned"
+    },
+    {
+      "id": "U2",
+      "title": "Loader annotation correction",
+      "depends_on": [
+        "P1"
+      ],
+      "consumes": {
+        "P1": "Pinned loader raw tuple and projection regression"
+      },
+      "owner_role": "loader-correction",
+      "kind": "correction",
+      "status": "planned"
+    },
+    {
+      "id": "B",
+      "title": "Bindings and extraction",
+      "depends_on": [
+        "P2",
+        "P3"
+      ],
+      "consumes": {
+        "P2": "Projection provenance and metadata capture",
+        "P3": "Shared checker and original requirement preservation"
+      },
+      "owner_role": "expansion",
+      "kind": "family",
+      "status": "planned"
+    },
+    {
+      "id": "C",
+      "title": "Does pipelines and mutate",
+      "depends_on": [
+        "P2",
+        "P3"
+      ],
+      "consumes": {
+        "P2": "Callable provenance and finite declaration snapshots",
+        "P3": "Original and replacement binding contracts"
+      },
+      "owner_role": "pipelines",
+      "kind": "family",
+      "status": "planned"
+    },
+    {
+      "id": "D0",
+      "title": "Recursive discovery and mount provenance",
+      "depends_on": [
+        "P2",
+        "P3"
+      ],
+      "consumes": {
+        "P2": "Minimal provenance capture seam",
+        "P3": "Checked nested declaration bindings"
+      },
+      "owner_role": "subdags",
+      "kind": "capability",
+      "status": "planned"
+    },
+    {
+      "id": "D1",
+      "title": "Complete public subdag options",
+      "depends_on": [
+        "D0"
+      ],
+      "consumes": {
+        "D0": "Recursive admission and independent mount identity"
+      },
+      "owner_role": "subdags",
+      "kind": "family",
+      "status": "planned"
+    },
+    {
+      "id": "D2",
+      "title": "Delayed decorator resolution",
+      "depends_on": [
+        "P2",
+        "P3"
+      ],
+      "consumes": {
+        "P2": "Single-resolution provenance capture",
+        "P3": "Resolved config and modifier binding contracts"
+      },
+      "owner_role": "resolvers",
+      "kind": "family",
+      "status": "planned"
+    },
+    {
+      "id": "D3",
+      "title": "Configured model generation",
+      "depends_on": [
+        "P2",
+        "P3"
+      ],
+      "consumes": {
+        "P2": "Bound compute provenance and finite snapshot rules",
+        "P3": "Model and compute binding contracts"
+      },
+      "owner_role": "models",
+      "kind": "family",
+      "status": "planned"
+    },
+    {
+      "id": "E",
+      "title": "Validation roles and safe diagnostics",
+      "depends_on": [
+        "P2",
+        "P3"
+      ],
+      "consumes": {
+        "P2": "Raw, evidence and final-node role facts",
+        "P3": "Result representation and validator binding contracts"
+      },
+      "owner_role": "validation",
+      "kind": "family",
+      "status": "planned"
+    },
+    {
+      "id": "F",
+      "title": "Loaders savers and registry snapshots",
+      "depends_on": [
+        "P2",
+        "P3"
+      ],
+      "consumes": {
+        "P2": "Selected adapter identity and projection provenance",
+        "P3": "Loader and saver data/binding contracts"
+      },
+      "owner_role": "io",
+      "kind": "family",
+      "status": "planned"
+    },
+    {
+      "id": "QB",
+      "title": "Core static decorator release gate",
+      "depends_on": [
+        "A",
+        "B",
+        "C",
+        "D1",
+        "D2",
+        "D3",
+        "E",
+        "F",
+        "P4",
+        "U1",
+        "U2"
+      ],
+      "consumes": {
+        "A": "Convenience forms and metadata targeting",
+        "B": "Binding and projection qualification",
+        "C": "Replacement and pipeline qualification",
+        "D1": "Complete public subdag options",
+        "D2": "Counted delayed resolution qualification",
+        "D3": "Model construction and state contract",
+        "E": "Validation selection and diagnostic policy",
+        "F": "I/O effects and captured registry identity",
+        "P4": "Ownership, selection and policy integration",
+        "U1": "Qualified async output pipeline correction",
+        "U2": "Qualified loader tuple correction"
+      },
+      "owner_role": "integrator",
+      "kind": "gate",
+      "status": "planned"
+    },
+    {
+      "id": "G1",
+      "title": "Pandas and parameterize_frame",
+      "depends_on": [
+        "B",
+        "D0"
+      ],
+      "consumes": {
+        "B": "Extraction and parameterization contracts",
+        "D0": "Recursive plugin mount provenance"
+      },
+      "owner_role": "pandas",
+      "kind": "profile",
+      "status": "planned"
+    },
+    {
+      "id": "G2",
+      "title": "Polars eager and lazy",
+      "depends_on": [
+        "D0"
+      ],
+      "consumes": {
+        "D0": "Recursive plugin mount provenance"
+      },
+      "owner_role": "polars",
+      "kind": "profile",
+      "status": "planned"
+    },
+    {
+      "id": "G3",
+      "title": "Spark decorators",
+      "depends_on": [
+        "D0"
+      ],
+      "consumes": {
+        "D0": "Recursive plugin mount provenance"
+      },
+      "owner_role": "spark",
+      "kind": "profile",
+      "status": "planned"
+    },
+    {
+      "id": "V",
+      "title": "Pydantic and Pandera validators",
+      "depends_on": [
+        "E"
+      ],
+      "consumes": {
+        "E": "Validation roles, selection and diagnostic contract"
+      },
+      "owner_role": "validator-plugins",
+      "kind": "profile",
+      "status": "planned"
+    },
+    {
+      "id": "QC",
+      "title": "Shipped static profiles gate",
+      "depends_on": [
+        "QB",
+        "G1",
+        "G2",
+        "G3",
+        "V"
+      ],
+      "consumes": {
+        "QB": "Integrated core decorators and ownership contract",
+        "G1": "Qualified Pandas and experimental profile",
+        "G2": "Qualified eager and lazy Polars profiles",
+        "G3": "Qualified Spark profile and stop/join restrictions",
+        "V": "Qualified schema and runtime representation profiles"
+      },
+      "owner_role": "integrator",
+      "kind": "gate",
+      "status": "planned"
+    },
+    {
+      "id": "Z",
+      "title": "Static coverage audit and documentation",
+      "depends_on": [
+        "QC"
+      ],
+      "consumes": {
+        "QC": "Static profile qualification and recorded unresolved mismatches"
+      },
+      "owner_role": "integrator",
+      "kind": "gate",
+      "status": "planned"
+    },
+    {
+      "id": "K0",
+      "title": "Cache feasibility and trust decision",
+      "depends_on": [
+        "P1"
+      ],
+      "consumes": {
+        "P1": "Reusable oracle and deserializer/effect spies"
+      },
+      "owner_role": "cache",
+      "kind": "feasibility",
+      "status": "planned"
+    },
+    {
+      "id": "K",
+      "title": "Explicit effective cache profile",
+      "depends_on": [
+        "K0",
+        "A",
+        "P4"
+      ],
+      "consumes": {
+        "K0": "Positive bounded-bridge decision and storage/data trust contract",
+        "A": "Preserved cache directives",
+        "P4": "Resource and borrowing eligibility plus selection rules"
+      },
+      "owner_role": "cache",
+      "kind": "runtime-profile",
+      "status": "planned"
+    },
+    {
+      "id": "QK",
+      "title": "Cache composition and activation gate",
+      "depends_on": [
+        "K",
+        "QB"
+      ],
+      "consumes": {
+        "K": "Explicit cache behavior, eligibility and context identity",
+        "QB": "Validation, I/O and ownership composition contracts"
+      },
+      "owner_role": "integrator",
+      "kind": "gate",
+      "status": "planned"
+    },
+    {
+      "id": "R0",
+      "title": "Ray feasibility and authority decision",
+      "depends_on": [
+        "P1"
+      ],
+      "consumes": {
+        "P1": "Counted attempts and controlled cancellation oracle"
+      },
+      "owner_role": "ray",
+      "kind": "feasibility",
+      "status": "planned"
+    },
+    {
+      "id": "R",
+      "title": "Explicit effective Ray profile",
+      "depends_on": [
+        "R0",
+        "A",
+        "P4"
+      ],
+      "consumes": {
+        "R0": "Positive bounded-bridge decision and stop/join authority contract",
+        "A": "Preserved Ray directives",
+        "P4": "Resource dependency and policy placement rules"
+      },
+      "owner_role": "ray",
+      "kind": "runtime-profile",
+      "status": "planned"
+    },
+    {
+      "id": "QR",
+      "title": "Ray composition and activation gate",
+      "depends_on": [
+        "R",
+        "QB"
+      ],
+      "consumes": {
+        "R": "Bounded remote options, attempt ownership and stop/join evidence",
+        "QB": "Validation, I/O and ownership composition contracts"
+      },
+      "owner_role": "integrator",
+      "kind": "gate",
+      "status": "planned"
+    },
+    {
+      "id": "ZR",
+      "title": "Combined runtime coverage audit",
+      "depends_on": [
+        "Z",
+        "QK",
+        "QR"
+      ],
+      "consumes": {
+        "Z": "Static coverage audit and remaining gaps",
+        "QK": "Precisely qualified cache profiles",
+        "QR": "Precisely qualified remote profiles"
+      },
+      "owner_role": "integrator",
+      "kind": "gate",
+      "status": "planned"
+    },
+    {
+      "id": "X",
+      "title": "Optional custom modifier proposal",
+      "depends_on": [
+        "QB"
+      ],
+      "consumes": {
+        "QB": "Stabilized built-in seams and demonstrated extension needs"
+      },
+      "owner_role": "extensions",
+      "kind": "extension",
+      "status": "planned"
+    }
+  ]
+}
