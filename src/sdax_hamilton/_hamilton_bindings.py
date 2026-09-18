@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from copy import copy
 from typing import Any, get_origin
 
+import typing_inspect
 from hamilton.function_modifiers.dependencies import (
     GroupedDictDependency,
     GroupedListDependency,
@@ -175,7 +176,8 @@ def _capture_output(
             continue
         if type(binding) in (GroupedListDependency, GroupedDictDependency):
             expected_origin = list if type(binding) is GroupedListDependency else dict
-            if get_origin(annotation) is not expected_origin:
+            grouped_annotation = _ungroup_optional(annotation)
+            if get_origin(grouped_annotation) is not expected_origin:
                 raise ValueError(f"{fn.__name__}.{name}: invalid grouped binding annotation")
             component = binding.resolve_dependency_type(annotation, name)
             validate_type(component)
@@ -250,6 +252,12 @@ def _merged_default(fn: Any, name: str, defaults: list[object]) -> object:
     if any(candidate is not default for candidate in defaults[1:]):
         raise ValueError(f"{fn.__name__}.{name}: conflicting merged source defaults")
     return default
+
+
+def _ungroup_optional(annotation: Any) -> Any:
+    if typing_inspect.is_optional_type(annotation):
+        return typing_inspect.get_args(annotation)[0]
+    return annotation
 
 
 def _group_items(fn: Any, binding: GroupedListDependency | GroupedDictDependency) -> tuple[Any, ...]:
