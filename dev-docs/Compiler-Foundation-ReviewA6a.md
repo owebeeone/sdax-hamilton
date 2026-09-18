@@ -274,3 +274,52 @@ Final frozen SHA256 values:
 The corrected frozen report records 11 focused provenance-feasibility tests and
 288 tests in the complete local source suite. The source and test hashes did not
 change for that report-only count correction.
+
+## Shared input-contract transport seam
+
+The shared input-contract seam passes this bounded review for integration. Its
+construction fact copies the supplied input map behind a read-only proxy and
+rejects keys absent from the exact Hamilton node. Extract, validation and
+pipeline transformations preserve the incoming declaration, role, actual-call
+and borrowing facts where applicable, and carry the original `InputSpec` values
+only along the actual input-consuming path. Validation therefore keeps the
+public gate protected while the raw call retains its input contracts and owner.
+
+Namespace handoff requires its source node, equal input arity and equal ordered
+`(type, DependencyType)` values before pairing old and new names. The maintained
+two-input `int`/`str` witness proves the intended remap and fail-closed rejection
+of reordered contracts. Equal-contract ambiguity remains bounded by the exact
+Hamilton 1.90 version gate and its inspected order-preserving `add_namespace`
+implementation.
+
+Lowering rejects captured keys absent from the final node, validates the final
+Hamilton type and every original requirement, and retains the complete
+conjunction in the existing `InputSpec`. An optional captured default keeps its
+application-object identity and must satisfy every requirement. A final required
+dependency discards the captured default, preserving Hamilton's required-input
+shape. The existing selection and runtime checks consequently continue to
+enforce all carried requirements before callbacks, including when output checks
+are disabled.
+
+This snapshot is deliberately transport-only. It contains no production seeding
+call, does not independently prove end-to-end B or C capture, and does not change
+public `_SUPPORTED`. The B and C overlays must seed this fact from their exact
+modifier contracts and retain their own real composition witnesses before any
+family activation.
+
+Frozen SHA256 values:
+
+- `src/sdax_hamilton/_hamilton_provenance.py`:
+  `fc2785390c7ecc5465ce9bc54e05616dbe584499c3d572dd811eb323757ce33f`
+- `src/sdax_hamilton/hamilton_compat.py`:
+  `4a3f6b6f367f378bcdc42d5f8462420c6994a829c90f776e31600e2d5a241e81`
+- `tests/test_provenance_feasibility.py`:
+  `d155014f348bcdb1e08fb70442a1a0e659339e11d287e35f85013e508d8d88e5`
+
+Independent verification on the frozen snapshot produced 13 focused provenance
+tests, 59 combined binding/provenance/macro tests and 319 tests in the complete
+source suite. Targeted mypy and Ruff checks and `git diff --check` passed. A
+direct probe separately confirmed mapping immutability, namespace remapping,
+conjunctive requirements, default identity, required-default removal, bad-default
+and unknown-key rejection, and preservation of an incoming validation-gate fact
+through extraction.

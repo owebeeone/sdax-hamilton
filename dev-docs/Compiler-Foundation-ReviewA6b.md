@@ -271,3 +271,34 @@ its exact modifier is attached to a declaration and that family is admitted. The
 explicit decorator import is therefore sufficient profile selection; no Driver
 argument or public plugin SDK is needed. The guard is inactive infrastructure and
 does not qualify or activate any optional family.
+
+### Shared input-contract transport seam
+
+The construction-only input-contract seam passes its bounded architecture gate at
+these frozen hashes:
+
+- `_hamilton_provenance.py`:
+  `fc2785390c7ecc5465ce9bc54e05616dbe584499c3d572dd811eb323757ce33f`
+- `hamilton_compat.py`:
+  `4a3f6b6f367f378bcdc42d5f8462420c6994a829c90f776e31600e2d5a241e81`
+- `test_provenance_feasibility.py`:
+  `d155014f348bcdb1e08fb70442a1a0e659339e11d287e35f85013e508d8d88e5`
+
+The independent run passed 13 focused and 319 full tests with caches disabled;
+the diff check was clean. `_CapturedFact.input_contracts` transports the existing
+immutable `InputSpec` objects during construction. It is not another contract
+model or persistent registry. `_remember()` rejects contract keys that are not
+inputs of the observed Hamilton node. Namespace handoff checks the input count and
+the exact ordered `(type, DependencyType)` values before applying the pinned
+Hamilton 1.90 key-order rename; a two-input witness proves correct remapping and
+fail-closed rejection of distinct-type reordering. `_lower_inputs()` then writes
+the captured requirements and defaults into the sole final `NodeSpec.inputs` map.
+
+Extraction, validation and output-pipeline transitions preserve the relevant
+incoming declaration, role, actual-call, borrow, public-name and contract facts
+instead of attributing a transformed call to the outer modifier by accident. The
+separate E composition witnesses prove role, declaration and shutdown routing;
+they do not seed nonempty contracts or cross a namespace. This approval therefore
+covers the shared transport seam only. B/C producer capture and a real D0
+namespaced nonempty-contract composition remain required before their public
+families can be activated.
