@@ -12,7 +12,7 @@ SDAX owns scheduling, retries, timeouts and reverse dependency shutdown.
 [Quick start](https://owebeeone.github.io/sdax-hamilton/QuickStart/) ·
 [Retries, jitter and shutdown](https://owebeeone.github.io/sdax-hamilton/Lifecycle/)
 
-**Status:** experimental release `0.1.0`. The API is not frozen. Before 1.0,
+**Status:** experimental release `0.2.0`. The API is not frozen. Before 1.0,
 breaking API changes use a new minor version; patch versions preserve the documented
 API except for corrections to incorrect behavior.
 See the [implementation status](https://github.com/owebeeone/sdax-hamilton/blob/main/dev-docs/Implementation-Status.md)
@@ -25,7 +25,7 @@ Python 3.11 or later is required. This alpha pins `sdax==0.7.2` and
 `apache-hamilton==1.90.0`.
 
 ```sh
-python -m pip install sdax-hamilton==0.1.0
+python -m pip install sdax-hamilton==0.2.0
 ```
 
 Define an application module, for example `nodes.py`:

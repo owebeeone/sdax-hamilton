@@ -1,6 +1,6 @@
 # Quick start
 
-This example uses APIs available in the published 0.1.0 alpha. It combines
+This example uses the 0.2.0 alpha. It combines
 Hamilton parameter binding, an SDAX retry policy, and an explicit shutdown.
 No external service or credentials are needed.
 
@@ -9,12 +9,11 @@ No external service or credentials are needed.
 Use Python 3.11–3.13:
 
 ```sh
-python -m pip install sdax-hamilton==0.1.0
+python -m pip install sdax-hamilton==0.2.0
 ```
 
-The release pins `apache-hamilton==1.90.0` and `sdax==0.7.2`. Newer decorator
-coverage described in [Compatibility](Compatibility.md) currently lives on `main`.
-To try that development version in a separate environment:
+The release pins `apache-hamilton==1.90.0` and `sdax==0.7.2`. See [Compatibility](Compatibility.md) for the supported decorators and optional
+profiles. To try subsequent development on `main` in a separate environment:
 
 ```sh
 python -m pip install 'git+https://github.com/owebeeone/sdax-hamilton.git@main'

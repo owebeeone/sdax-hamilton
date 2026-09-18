@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 - Extend static graph compilation to Hamilton's binding/extraction, pipeline,
   recursive subgraph, delayed resolver/model, validation and I/O decorator families.
@@ -10,12 +10,16 @@
   environments and ordinary public Driver coverage.
 - Add bounded lazy local Spark plans with caller-owned sessions and early
   rejection of unsupported lifecycle placements.
+- Publish a GitHub Pages documentation site with runnable examples and adopt
+  Gearu for release preparation.
+- Derive `__version__` from installed package metadata.
 - Retain cache and Ray declarations as inactive metadata. SDAX remains the sole
   graph orchestrator; these declarations do not enable their execution backends.
 
 Consolidated safety and architecture review passes after correcting Spark/I/O
 composition restrictions and making optional profiles required release gates.
-Local artifact checks pass; release CI remains pending. Current boundaries are
+Local artifact checks and the pre-release GitHub matrices pass. Publication
+requires the release artifact matrix to pass again. Current boundaries are
 documented in [Compatibility](docs/Compatibility.md).
 
 ## 0.1.0

@@ -1,6 +1,6 @@
 # API guide
 
-This guide describes the development API. See
+This guide describes the 0.2.0 API. See
 [Compatibility](Compatibility.md) for the exact supported declaration subset and
 [implementation status](https://github.com/owebeeone/sdax-hamilton/blob/main/dev-docs/Coverage-Execution.md)
 for qualification. Start with [Quick Start](QuickStart.md) for a runnable example
@@ -151,7 +151,7 @@ publication protocol in this alpha.
 
 Each selected expansion of a declared acquisition must have exactly one shutdown
 owner. Runtime overrides and config replacements of owned acquisitions are
-rejected. In the development API, supported resource extraction projections borrow
+rejected. Supported resource extraction projections borrow
 their raw acquisition; selecting them retains its cleanup dependency. Shared
 resources across runs and arbitrary singleton alias detection are not supported.
 The frontend cannot prevent an

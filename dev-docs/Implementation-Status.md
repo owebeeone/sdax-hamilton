@@ -1,6 +1,21 @@
 # Implementation status
 
-Date: 18 September 2026. Experimental release: `0.1.0`.
+Date: 18 September 2026. Current release preparation: `0.2.0`.
+
+## 0.2.0 qualification
+
+The static decorator coverage increment and its two independent reviews are
+recorded in [Coverage execution](Coverage-Execution.md). The corrected wheel
+passes 435 base tests on Python 3.11–3.13 and 453 tests in the Spark profile.
+All five optional profiles passed locally, and both GitHub Tests and Release
+artifacts workflows passed on the documentation checkpoint `9b4aa08`, including
+all eight release wheel jobs. The release workflow repeats those gates for the
+published release before allowing the PyPI upload.
+
+Gearu 0.1.1 now prepares the release version, checks the candidate and exact commit,
+and creates the immutable tag/GitHub Release. GitHub Actions retains package
+publication through trusted publishing. The earlier alpha records below are
+historical; the current compatibility guide defines the expanded release scope.
 
 The repository now contains a standalone experimental package. This file records current
 product work; the earlier design, adversarial

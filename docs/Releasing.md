@@ -3,25 +3,28 @@
 Releases use the PyPI trusted publisher for `owebeeone/sdax-hamilton`, workflow
 `publish.yml`, with no required GitHub environment. No API token is required.
 
-1. Review changes, update `pyproject.toml`, README, release notes and qualification
-   records. Before 1.0, breaking API changes use a new minor version; patch versions
-   preserve the documented API except for corrections to incorrect behavior.
-2. Commit and push the release candidate on `main`. In a GWZ workspace, use GWZ
-   with the `sdax-hamilton` target for staging, committing and pushing.
-3. Require both the Tests and Release artifacts workflows to pass. The latter
-   builds an sdist, builds the wheel from that sdist, checks distribution metadata,
-   and tests the installed wheel on Python 3.11, 3.12 and 3.13. Branch runs and
-   manual runs validate artifacts but do not publish.
-4. Create and push `v<version>` at that reviewed commit. The tag must exactly match
-   the package version. In GWZ use `gwz --target sdax-hamilton tag v<version>` and
-   `gwz --target sdax-hamilton tag --push v<version>`.
-5. The tag workflow rebuilds and requalifies the release artifacts. A separate
-   publishing job downloads those exact artifacts only after every wheel test
-   succeeds, then uploads them to PyPI using OIDC and attestations. It neither
-   checks out the repository nor runs package build scripts with publishing rights.
+1. Review changes and update README, changelog, documentation and the release notes
+   in `gearu.toml`. Leave the package version for Gearu to update. Before 1.0,
+   breaking API changes use a new minor version; patch versions preserve the
+   documented API except for corrections to incorrect behavior.
+2. Commit and push preparation changes on `main` using GWZ in this workspace.
+   Require the Tests and Release artifacts workflows to pass before proceeding.
+3. Read the repository's [Gearu instructions](https://github.com/owebeeone/sdax-hamilton/blob/main/RELEASE.md)
+   and inspect `gearu plan VERSION`. It verifies branch/remote state and tag
+   immutability without changing tracked files or publishing anything.
+4. Run `gearu release VERSION --push --github-release`. Gearu updates the version,
+   runs the configured checks in its temporary candidate, creates the local
+   release commit and tag, atomically pushes both, and publishes the GitHub
+   Release. Gearu owns these release operations; routine workspace changes use GWZ.
+5. The GitHub `release.published` event starts package qualification. The workflow
+   builds an sdist and its wheel, checks metadata, and tests the installed wheel
+   on Python 3.11–3.13 plus all five optional profiles on Python 3.12. Only after
+   every wheel job passes does a separate job publish those exact artifacts to
+   PyPI using trusted publishing. Branch/manual runs do not upload packages;
+   pushing a tag alone does not publish.
 6. Verify PyPI artifact hashes against the workflow's distributions artifact,
    install the published version in a clean environment, and smoke-test it.
-   Create a GitHub release pointing at the existing tag with the release notes.
+   Refresh the GWZ root checkpoint to record Gearu's final member commit.
 
 Never move a published version tag or overwrite a release. A correction after
 publication needs a new version. Publication cannot be fully rehearsed without

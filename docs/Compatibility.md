@@ -1,9 +1,10 @@
 # Compatibility and limits
 
-This development branch extends v0.1.0. The forms below describe current code,
-not a new release. Consolidated review and local artifact qualification pass for
-the documented bounds below; release CI remains pending. Progress and corrections
-are tracked in `dev-docs/Coverage-Execution.md`.
+Version 0.2.0 extends the initial alpha with the static decorator families below.
+Consolidated review, local artifact qualification and the pre-release GitHub
+matrices pass for these documented bounds. The publication workflow repeats
+artifact qualification for the release itself. Progress and corrections are
+tracked in `dev-docs/Coverage-Execution.md`.
 
 The experimental release targets exactly `sdax==0.7.2` and `apache-hamilton==1.90.0`,
 with qualified Python versions 3.11–3.13. The initial alpha passed local macOS wheel
@@ -19,7 +20,7 @@ Hamilton `Driver.execute`, `AsyncDriver`, lifecycle adapters or remote executors
 
 ## Declaration subset
 
-| Declaration | Current development boundary |
+| Declaration | 0.2.0 boundary |
 |---|---|
 | Plain typed synchronous and asynchronous functions | Named parameters and annotated results; positional-only parameters, variadics, generators and async generators rejected. |
 | Hamilton `config` | `when`, `when_not`, `when_in`, `when_not_in` and custom callable predicates; predicates are trusted construction code and resolve once per declaration context. Owned acquisitions cannot be replaced by config values. |

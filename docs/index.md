@@ -50,11 +50,11 @@ and checks returned values by default.
 
 ## Current compatibility
 
-These pages follow **development on `main`**. The published **0.1.0 alpha** has a
-smaller decorator subset; the quick start uses APIs available in that release.
-The API is experimental and targets Python 3.11–3.13, Hamilton 1.90.0 and SDAX 0.7.2.
+These pages describe the **0.2.0 alpha** and follow subsequent development on
+`main`. The API is experimental and targets Python 3.11–3.13, Hamilton 1.90.0
+and SDAX 0.7.2.
 
-The development implementation covers the documented static decorator families
+Version 0.2.0 covers the documented static decorator families
 and bounded optional profiles. It does not provide every Hamilton runtime
 feature: cache/Ray decorators retain metadata only, and dynamic graph execution
 is outside this scope. See [Compatibility](Compatibility.md) for exact limits.

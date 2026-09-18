@@ -1,0 +1,61 @@
+[project]
+name = "sdax-hamilton"
+branch = "main"
+remote = "origin"
+tag_prefix = "v"
+github_repo = "owebeeone/sdax-hamilton"
+
+[python]
+manifest = "pyproject.toml"
+version = "static"
+
+[release]
+checks = [
+  ["uv", "run", "--python", "3.12", "--no-project", "--with", ".[test]", "python", "-m", "ruff", "check", "--no-cache", "src", "tests", "examples"],
+  ["uv", "run", "--python", "3.12", "--no-project", "--with", ".[test]", "python", "-m", "mypy", "src/sdax_hamilton", "tests/typing/authoring.py"],
+  ["uv", "run", "--python", "3.12", "--no-project", "--with-requirements", "docs-requirements.txt", "python", "-m", "mkdocs", "build", "--strict"],
+  ["uv", "build", "--python", "3.12"],
+]
+exact_checks = [
+  ["uv", "run", "--python", "3.12", "--no-project", "--with", "./dist/sdax_hamilton-{python_version}-py3-none-any.whl[test]", "python", "-I", "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests"],
+  ["uv", "run", "--python", "3.12", "--no-project", "--with", "./dist/sdax_hamilton-{python_version}-py3-none-any.whl[test]", "python", "-I", "examples/lifecycle.py"],
+]
+commit_message = "chore(release): sdax-hamilton {version}"
+github_notes = """
+Expanded static Hamilton decorator support over the existing SDAX runtime.
+
+## Install
+
+```sh
+python -m pip install sdax-hamilton=={python_version}
+```
+
+## What changed
+
+- Added binding/extraction, pipelines and `mutate`, recursive subgraphs,
+  delayed resolution, models, validation and loader/saver decorator families.
+- Added bounded Pandas, Polars, Pydantic, Pandera and local Spark profiles.
+- Preserved typed bindings and resource ownership through generated nodes,
+  with explicit execution-policy targets for generated I/O steps.
+- Added [documentation](https://owebeeone.github.io/sdax-hamilton/), including
+  retry/jitter and dependency-ordered shutdown guides.
+- Closed the reviewed Spark/I/O composition bypass; optional profile wheel
+  tests now gate publication. Gearu prepares the version, commit, tag and release.
+
+## Compatibility
+
+Python 3.11–3.13; `sdax==0.7.2`; `apache-hamilton==1.90.0`.
+The API remains experimental. SDAX is the sole graph orchestrator.
+Cache/Ray declarations retain metadata only; dynamic graph execution and general
+third-party decorators are not included. Spark supports caller-owned lazy local
+plans with explicit lifecycle/I/O restrictions.
+
+See the [versioned compatibility guide](https://github.com/owebeeone/sdax-hamilton/blob/{tag}/docs/Compatibility.md)
+for exact limits. Independent [safety](https://github.com/owebeeone/sdax-hamilton/blob/{tag}/dev-docs/Coverage-Implementation-ReviewA6a.md)
+and [architecture](https://github.com/owebeeone/sdax-hamilton/blob/{tag}/dev-docs/Coverage-Implementation-ReviewA6b.md)
+reviews passed after targeted corrections.
+
+Publishing this GitHub Release starts the package workflow. PyPI publication
+follows only after all three base Python wheel jobs and all five optional profile
+jobs pass, using the exact tested wheel and source distribution.
+"""
