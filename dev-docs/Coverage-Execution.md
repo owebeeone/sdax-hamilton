@@ -62,10 +62,13 @@ can change public compatibility claims.
 | P0 | Complete | Reviewed-plan requirements mapped to existing implementation above; bounded initial ownership assigned |
 | P1 | Complete for initial lanes | Four new oracle characterizations pass; full source suite 179 passed on Python 3.12.12; changed fixtures pass Ruff |
 | S | Passed bounded feasibility gate | Independent safety and architecture reviewers approve P2/P3; proof commit `827cda8`; production selection/ownership enforcement remains P4/E |
-| A | Under QA review | Alias/config/metadata implementation `326c18e`; 190 tests, Ruff and mypy pass in its clone |
-| U1 | In progress | Pinned source analysis; isolated correction follows clone readiness |
-| U2 | In progress | Pinned source analysis; isolated correction follows clone readiness |
-| QA onward | Planned | Follow the reviewed DAG; no early activation of unqualified families |
+| A / QA | Passed bounded gate | Alias/config/metadata `326c18e`; independent safety/architecture reviews pass |
+| U1 | Complete as inactive correction | `20c332a`; upstream expansion delegated, async source preserved; C admission still pending |
+| U2 | Complete as inactive correction | `d9c3c81`; exact admitted LoadFrom collection required after the compiler version gate; F admission still pending |
+| P2 | In progress | Sol provenance lane owns compiler/NodeSpec capture; no broad family activation |
+| P3 | Under review | `76a5d56`; original consumer requirements checked through existing selection/runtime paths |
+| P4 / B / C / E / F | Preparation | Six editor lanes after S; implement against foundations, qualify before activation |
+| QB onward | Planned | Follow the reviewed DAG; no early activation of unqualified families |
 
 Initial local clones are ready: `ham-provenance`, `ham-aliases`, `ham-pipelines`
 and `ham-loaders`, each on its matching `codex/ham-*` member branch. S started from
@@ -79,3 +82,18 @@ S reviews: [safety](Provenance-Feasibility-ReviewA6a.md) and
 remain recorded. The author subsequently strengthened the failure/role/count
 witnesses and clarified pinned assumptions; these refinements do not broaden the
 bounded gate decision or activate the demonstrated decorator families.
+
+Integrated checkpoint `a154bf4` contains S, A, U1 and U2. All 208 tests pass on
+Python 3.11, 3.12 and 3.13 in the existing external release environments; the
+Python 3.11 package/authoring mypy check passes. Reviews are recorded in
+[A safety](Phase-A-Qualification-ReviewA6a.md),
+[A architecture](Phase-A-Qualification-ReviewA6b.md),
+[correction safety](Corrections-ReviewA6a.md) and
+[correction architecture](Corrections-ReviewA6b.md). Consolidate U1's duplicate
+version detector with the enclosing compiler guard when C integrates it.
+
+Two more lanes prepare after S: `ham-validation` (Sol/high) for E/P4, and
+`ham-bindings` (Terra/high) for B and necessary bounded type additions. They begin
+read-only until their local clones are ready. Existing pipeline/loader workers
+continue into C/F; the provenance worker owns shared compiler integration. This
+keeps two Sol and four Terra editing lanes, plus independent Sol reviewers.
