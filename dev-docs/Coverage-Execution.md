@@ -109,3 +109,12 @@ Mypy follows the active interpreter rather than forcing Python 3.11 while parsin
 newer-interpreter dependency stubs. The existing CI matrix still checks 3.11–3.13;
 this resolves the observed NumPy 3.12-stub parse failure without changing runtime
 dependencies or the package's Python minimum.
+
+The isolated base-profile regression also identified a necessary precision change:
+Hamilton probes Pandera during modifier import even after registry autoload is
+disabled. The architecture reviewer accepted documenting this trusted upstream
+import behavior rather than adding a global import filter or fork. Frontend
+backend activation remains explicit; metadata never activates Ray or caching.
+The test isolates unavailable optional packages and separately asserts the pinned
+Pandera probe and absence of Ray import requests. This does not claim that ambient
+installed validator packages are never imported by Hamilton.

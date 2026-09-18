@@ -56,7 +56,13 @@ P0 records these goals and every activation/release gate checks them:
 - **Minimal core and dependencies.** No Hamilton-specific SDAX core change or
   dependency is part of this plan. A demonstrated exception requires a separate
   design decision. Keep internals inside one private compatibility boundary;
-  optional backend/plugin libraries load only for an explicitly selected profile.
+  frontend-added backend/plugin imports require an explicitly selected profile.
+  Hamilton 1.90.0 itself probes installed default-validator packages (including
+  Pandera) during modifier-package import, independently of registry autoload.
+  That trusted upstream import behavior is not frontend backend activation; it is
+  characterized in the isolated base-profile test. Base-only CI omits optional
+  dependencies. Preventing all upstream import probes would require a different
+  dependency or global import interception, neither of which this plan introduces.
 
 Non-goals: sandboxing hostile Python, proving arbitrary user functions pure or
 idempotent, generic deep-copy/serialization of Python object graphs, discovering

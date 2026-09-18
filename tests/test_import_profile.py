@@ -19,12 +19,14 @@ import types
 # autoload only in this isolated process, before importing either driver.
 from hamilton import registry
 registry.disable_autoload()
+attempted_optional_imports = []
 
 class OptionalPackagesUnavailable(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
         if fullname.split(".")[0] in {"ray", "polars", "pyspark", "pandera", "pydantic"}:
             # Hamilton probes installed validators independently of registry
             # autoload. Isolate the base profile even on a developer's rich env.
+            attempted_optional_imports.append(fullname.split(".")[0])
             raise ModuleNotFoundError("Unavailable in base profile: " + fullname, name=fullname)
         return None
 
@@ -52,6 +54,10 @@ assert asyncio.run(plan.execute()) == {"result": 2}
 assert asyncio.run(plan.execute()) == {"result": 3}
 assert module.calls == ["local", "local", "local"]
 assert not {"ray", "polars", "pyspark", "pandera", "pydantic"}.intersection(sys.modules)
+# Pin the upstream distinction: default-validator discovery can probe Pandera;
+# inactive Ray metadata never asks for the remote runtime.
+assert "pandera" in attempted_optional_imports
+assert "ray" not in attempted_optional_imports
 '''
     environment = dict(os.environ)
     # Works both for source qualification and an installed wheel/sdist.
