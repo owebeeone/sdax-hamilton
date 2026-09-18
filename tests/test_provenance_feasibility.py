@@ -2,6 +2,7 @@
 
 import gc
 import inspect
+import logging
 import weakref
 from collections import Counter
 from collections.abc import Callable
@@ -313,6 +314,65 @@ def result(value: int) -> int:
         if record.name == "hamilton.function_modifiers.base"
     ]
     assert _decorator_objects(module.result) == original_decorators
+    assert len(capture_refs) == 1
+    assert capture_refs[0]() is None
+
+
+def test_public_driver_preserves_config_predicate_failure_without_hamilton_log(
+    module_factory, monkeypatch, caplog
+):
+    calls = []
+    callback_logger = logging.getLogger("sdax_hamilton_test.config_predicate")
+
+    class Sentinel(RuntimeError):
+        pass
+
+    def predicate(configuration):
+        callback_logger.warning("predicate callback ran")
+        error = Sentinel("private sentinel")
+        calls.append(id(error))
+        raise error
+
+    module = module_factory(
+        """
+from hamilton.function_modifiers import config
+
+@config(predicate)
+def result(value: int) -> int:
+    return value
+""",
+        predicate=predicate,
+    )
+    capture_refs = []
+    capture_class = hamilton_compat._ProvenanceCapture
+
+    class ObservedCapture(capture_class):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            capture_refs.append(weakref.ref(self))
+
+    monkeypatch.setattr(hamilton_compat, "_ProvenanceCapture", ObservedCapture)
+
+    def construct() -> None:
+        with pytest.raises(Sentinel) as result:
+            Driver(module, config={"enabled": True})
+        assert id(result.value) == calls[0]
+        assert result.value.__context__ is None
+        assert result.value.__cause__ is None
+
+    construct()
+    gc.collect()
+    assert len(calls) == 1
+    assert [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == callback_logger.name
+    ] == ["predicate callback ran"]
+    assert not [
+        record
+        for record in caplog.records
+        if record.name == "hamilton.function_modifiers.base"
+    ]
     assert len(capture_refs) == 1
     assert capture_refs[0]() is None
 

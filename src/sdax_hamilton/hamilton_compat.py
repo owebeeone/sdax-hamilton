@@ -40,6 +40,8 @@ from hamilton.function_modifiers.validation import (
 from hamilton.graph_utils import find_functions
 from hamilton.lifecycle.base import LifecycleAdapterSet
 
+from ._construction import resolve_nodes as _resolve_nodes
+from ._construction import wrap_lifecycle
 from ._model import MISSING, GeneratedRole, InputSpec, NodeSpec
 from ._types import accepts, compatible, validate_type
 from .declarations import Acquisition, Policy
@@ -399,13 +401,16 @@ class _ProvenanceCapture:
             self._instrument_resolver(snapshot, declaration)
         elif type(snapshot) is check_output_custom:
             self._instrument_validation(snapshot, declaration)
-        return snapshot
+        wrap_result = (
+            wrap_lifecycle if snapshot.get_lifecycle_name() == "dynamic" else None
+        )
+        return wrap_lifecycle(snapshot, wrap_result=wrap_result)
 
     def clone(self, fn: Callable[..., Any]) -> Callable[..., Any]:
         existing = self._clones.get(fn)
         if existing is not None:
             return existing
-        clone = _copy_function(fn)
+        clone = _copy_function(fn, _wrap_lifecycles=False)
         self._clones[fn] = clone
         self._originals[clone] = fn
         for stage in _LIFECYCLES:
@@ -473,7 +478,9 @@ class _ProvenanceCapture:
         self._mounts.clear()
 
 
-def _copy_function(fn: Callable[..., Any]) -> Callable[..., Any]:
+def _copy_function(
+    fn: Callable[..., Any], *, _wrap_lifecycles: bool = True
+) -> Callable[..., Any]:
     """Copy one function and its bounded modifier containers."""
     clone = FunctionType(
         fn.__code__, fn.__globals__, fn.__name__, fn.__defaults__, fn.__closure__
@@ -492,6 +499,11 @@ def _copy_function(fn: Callable[..., Any]) -> Callable[..., Any]:
                         output: {name: copy(binding) for name, binding in bindings.items()}
                         for output, bindings in modifier.parameterization.items()
                     }
+                if _wrap_lifecycles:
+                    wrap_result = (
+                        wrap_lifecycle if snapshot.get_lifecycle_name() == "dynamic" else None
+                    )
+                    snapshot = wrap_lifecycle(snapshot, wrap_result=wrap_result)
                 modifiers.append(snapshot)
             setattr(clone, key, modifiers)
     clone.__module__ = fn.__module__
@@ -692,7 +704,7 @@ def compile_modules(modules, configuration, *, _supported=_SUPPORTED):
         for fn in declarations:
             if _excluded(fn):
                 continue
-            expanded = tuple(base.resolve_nodes(capture.clone(fn), dict(configuration)))
+            expanded = tuple(_resolve_nodes(capture.clone(fn), dict(configuration)))
             if not expanded:
                 continue
             facts = {entry.name: capture.fact(entry) for entry in expanded}

@@ -45,6 +45,13 @@ SDAX shutdown declaration. `number` comes from Hamilton `extract_fields`.
   persistent consumer needs a separate projection-source label. The test asserts
   the same complete role set for `high`. Dependency traversal from the low gate reaches exactly
   `low.acquire`; the high mount reaches exactly `high.acquire`.
+- Borrowing is computed once from the compiler's final resolved-node mapping. A
+  separate regression proves that a projection in one top-level declaration
+  retains an owner from another declaration without building a second graph.
+- A two-level mount regression uses different declarations with the same inner
+  `low`/`high` namespaces under different parents. Roles and owners cross each
+  namespace boundary through mount-scoped callable identity handoffs; no global
+  generated-name table is used.
 - Successful execution acquires and releases each mounted Handle once. When the
   low validation gate fails, both mounted acquisitions are still released once.
   The failure contains Hamilton's actual `DataValidationError`. Validation does
@@ -57,6 +64,10 @@ SDAX shutdown declaration. `number` comes from Hamilton `extract_fields`.
   a Driver constructed before the probe remain unchanged and usable afterward.
 - The construction capture is observed through a weak reference and is collected
   after compilation even while the returned `NodeSpec` callables remain usable.
+- Both a delayed resolver failure and a public `config` predicate failure preserve
+  the original exception object, callback count, context and cause. Hamilton emits
+  no error record, while an application log emitted immediately before the failure
+  remains visible. After the caller drops the exception, the capture is collected.
 
 ## Proven local seam
 
@@ -83,6 +94,10 @@ The compiler consumes temporary object-identity records during lowering. A
 both success and construction failure. The local Hamilton node collection then
 falls out of scope before the Driver becomes executable. The weak-reference check
 proves that returned runtime callables do not retain the capture object.
+Copied lifecycle methods carry ordinary callback failures through Hamilton as a
+private `BaseException` transport and restore the original exception outside the
+upstream logging boundary. `KeyboardInterrupt`, `SystemExit`, cancellation and
+other user `BaseException` values are not caught.
 
 No Hamilton compiler algorithm is copied. The complete set of version-coupled
 object and ordering assumptions in this proof is:
@@ -162,6 +177,11 @@ needs per-family qualification and public admission, nested/shared mount cases,
 selection/config/override protection, validation diagnostics policy, metadata
 snapshots, broader decorator families and the full lifecycle composition suite.
 The fixture covers one level and two mounts of one declared composition.
+Before validation is publicly activated, shutdown's public declaration target must
+be remapped to the captured actual raw call. The bounded fixture proves the default
+`@shutdown(of=resource)` case, where the raw call is the sole actual candidate; it
+does not yet qualify an explicit `target_="resource"` spelling when Hamilton has
+renamed that call to `resource_raw`.
 Packaging and Python 3.11/3.13 gates also remain outside this local feasibility run.
 
 Local verification:
@@ -169,11 +189,11 @@ Local verification:
 ```text
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src <qualification-python> -m pytest \
   -p no:cacheprovider tests/test_provenance_feasibility.py -q
-2 passed in 0.64s
+6 passed in 0.57s
 
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src <qualification-ruff> \
   check tests/test_provenance_feasibility.py
 All checks passed!
 ```
 
-The complete local source suite also passes: `208 passed in 0.65s`.
+The complete merged local source suite also passes: `252 passed in 3.46s`.
