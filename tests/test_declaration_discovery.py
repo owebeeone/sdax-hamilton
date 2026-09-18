@@ -4,7 +4,7 @@ import types
 
 import pytest
 
-from sdax_hamilton._discovery import discover_declarations
+from sdax_hamilton._discovery import discover_declarations, discover_shutdowns_for
 
 
 def test_subdag_module_discovers_nested_functions_and_owned_shutdowns(module_factory):
@@ -195,3 +195,27 @@ def result(selected: int) -> int:
 
     with pytest.raises(ValueError, match="Ambiguous shutdown owner"):
         discover_declarations([root])
+
+
+def test_helper_shutdown_discovery_reads_only_explicit_helper_scopes(module_factory):
+    helpers = module_factory(
+        """
+from sdax_hamilton import Acquisition, shutdown
+
+def captured() -> int:
+    return 1
+
+def unrelated() -> int:
+    return 2
+
+@shutdown(of=captured)
+def close_captured(state: Acquisition[int]) -> None:
+    pass
+
+@shutdown(of=unrelated)
+def close_unrelated(state: Acquisition[int]) -> None:
+    pass
+"""
+    )
+
+    assert discover_shutdowns_for([helpers.captured]) == (helpers.close_captured,)
