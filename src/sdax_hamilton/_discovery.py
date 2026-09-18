@@ -39,6 +39,14 @@ def _module_functions(module: ModuleType) -> tuple[FunctionType, ...]:
     return functions
 
 
+def _module_shutdowns(module: ModuleType) -> tuple[FunctionType, ...]:
+    _loaded_module(module)
+    shutdowns = tuple(fn for _, fn in find_functions(module) if hasattr(fn, "__sdax_shutdown__"))
+    for release in shutdowns:
+        _defining_module(release)
+    return shutdowns
+
+
 def _nested_functions(fn: FunctionType) -> tuple[FunctionType, ...]:
     nested: list[FunctionType] = []
     for modifier in getattr(fn, base.NodeCreator.get_lifecycle_name(), ()):
@@ -57,6 +65,48 @@ def _nested_functions(fn: FunctionType) -> tuple[FunctionType, ...]:
             else:
                 raise TypeError(f"Unsupported subdag declaration source: {source!r}")
     return tuple(nested)
+
+
+def _matching_shutdowns(
+    scopes: Iterable[ModuleType],
+    owners: Iterable[FunctionType],
+    *,
+    root_scope_ids: frozenset[int] = frozenset(),
+) -> tuple[FunctionType, ...]:
+    owner_functions = tuple(owners)
+    owner_ids = {id(owner) for owner in owner_functions}
+    owner_names = {(owner.__module__, owner.__qualname__) for owner in owner_functions}
+    shutdowns: list[FunctionType] = []
+    shutdown_ids: set[int] = set()
+    for scope in scopes:
+        for release in _module_shutdowns(scope):
+            owner = getattr(release, "__sdax_shutdown__")[0]
+            if id(owner) not in owner_ids:
+                if (owner.__module__, owner.__qualname__) in owner_names:
+                    raise ValueError(f"Ambiguous shutdown owner for {release.__qualname__}")
+                if id(scope) in root_scope_ids:
+                    raise ValueError(f"{release.__name__}: owner not discovered in supplied modules")
+                continue
+            if id(release) in shutdown_ids:
+                raise ValueError(f"Ambiguous duplicate shutdown declaration {release.__qualname__}")
+            shutdown_ids.add(id(release))
+            shutdowns.append(release)
+    return tuple(shutdowns)
+
+
+def discover_shutdowns_for(functions: Iterable[FunctionType]) -> tuple[FunctionType, ...]:
+    """Return shutdowns for captured helper identities without expanding their modules."""
+    helpers = tuple(dict.fromkeys(functions))
+    if any(not isinstance(helper, FunctionType) for helper in helpers):
+        raise TypeError("Shutdown discovery requires Python functions")
+    scopes: list[ModuleType] = []
+    scope_ids: set[int] = set()
+    for helper in helpers:
+        scope = _defining_module(helper)
+        if id(scope) not in scope_ids:
+            scope_ids.add(id(scope))
+            scopes.append(scope)
+    return _matching_shutdowns(scopes, helpers)
 
 
 def discover_declarations(modules: Iterable[ModuleType]) -> DeclarationSnapshot:
@@ -112,23 +162,9 @@ def discover_declarations(modules: Iterable[ModuleType]) -> DeclarationSnapshot:
     for root in roots:
         visit(root)
 
-    reached_ids = {id(fn) for fn in reached}
-    reached_names = {(fn.__module__, fn.__qualname__) for fn in reached}
-    shutdowns: list[FunctionType] = []
-    shutdown_ids: set[int] = set()
-    for scope in scopes:
-        for release in _module_functions(scope):
-            if not hasattr(release, "__sdax_shutdown__"):
-                continue
-            owner = release.__sdax_shutdown__[0]
-            if id(owner) not in reached_ids:
-                if (owner.__module__, owner.__qualname__) in reached_names:
-                    raise ValueError(f"Ambiguous shutdown owner for {release.__qualname__}")
-                if id(scope) in root_module_ids:
-                    raise ValueError(f"{release.__name__}: owner not discovered in supplied modules")
-                continue
-            if id(release) in shutdown_ids:
-                raise ValueError(f"Ambiguous duplicate shutdown declaration {release.__qualname__}")
-            shutdown_ids.add(id(release))
-            shutdowns.append(release)
-    return DeclarationSnapshot(tuple(roots), tuple(nested), tuple(shutdowns))
+    shutdowns = _matching_shutdowns(
+        scopes,
+        reached,
+        root_scope_ids=frozenset(root_module_ids),
+    )
+    return DeclarationSnapshot(tuple(roots), tuple(nested), shutdowns)
