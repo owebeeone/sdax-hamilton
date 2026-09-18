@@ -329,11 +329,6 @@ def test_nested_mount_hands_roles_to_each_parent_without_name_collisions(module_
     )
     outer_source = """
 from hamilton.function_modifiers import parameterized_subdag
-from sdax_hamilton import Acquisition, shutdown
-
-@shutdown(of=acquire)
-def close(state: Acquisition[Handle]) -> None:
-    state.value.live = False
 
 @parameterized_subdag(result, NAMESPACE={})
 def outer(low: int) -> int:
@@ -656,15 +651,17 @@ def result(value: int) -> int:
     assert resolver_calls == ["resolve"]
 
 
-def test_delayed_pipeline_rejects_undiscovered_external_helper_before_effects(
+@pytest.mark.asyncio
+async def test_delayed_pipeline_discovers_external_helper_shutdown_before_effects(
     module_factory, caplog
 ):
     events: list[str] = []
     resolver_calls: list[str] = []
     component = module_factory(
         """
-from sdax_hamilton import Acquisition, shutdown
+from sdax_hamilton import Acquisition, execution, shutdown
 
+@execution(timeout=1)
 def helper(value: int) -> int:
     events.append("helper")
     return value + 1
@@ -692,15 +689,21 @@ def result(value: int) -> int:
         resolver_calls=resolver_calls,
     )
 
-    with pytest.raises(ValueError, match="generated declarations were not discovered.*helper"):
-        hamilton_compat.compile_modules(
-            (root,),
-            {settings.ENABLE_POWER_USER_MODE: True},
-            _supported=(*hamilton_compat._SUPPORTED, resolve_from_config, pipe_output),
-        )
+    specs = hamilton_compat.compile_modules(
+        (root,),
+        {settings.ENABLE_POWER_USER_MODE: True},
+        _supported=(*hamilton_compat._SUPPORTED, resolve_from_config, pipe_output),
+    )
 
+    generated = specs["result.with_helper"]
     assert resolver_calls == ["resolve"]
+    assert generated.policy.timeout == 1
+    assert generated.ownership_required
+    assert generated.release is not None
     assert events == []
+    async with PreparedPlan(specs, ["result"]).open(inputs={"value": 4}) as result:
+        assert result == {"result": 5}
+    assert events == ["helper", "close"]
     assert not [
         record
         for record in caplog.records
@@ -823,3 +826,235 @@ def result(value: int) -> int:
 
     assert resolver_calls == ["resolve"]
     assert events == []
+
+
+def test_delayed_subdag_rejects_hidden_unsupported_modifier_before_expansion(
+    module_factory, monkeypatch
+):
+    from hamilton.function_modifiers.expanders import extract_fields
+    from hamilton.function_modifiers.recursive import subdag
+
+    resolver_calls: list[str] = []
+    expansions: list[str] = []
+    original_expand = extract_fields.transform_node
+
+    def counted_expand(self, *args, **kwargs):
+        expansions.append("extract")
+        return original_expand(self, *args, **kwargs)
+
+    monkeypatch.setattr(extract_fields, "transform_node", counted_expand)
+    nested = module_factory(
+        """
+from hamilton.function_modifiers import extract_fields
+
+@extract_fields({"number": int})
+def hidden() -> dict[str, int]:
+    return {"number": 1}
+"""
+    )
+    root = module_factory(
+        """
+from hamilton.function_modifiers import hamilton_exclude, resolve_from_config, subdag
+
+@hamilton_exclude
+def decorate_with():
+    resolver_calls.append("resolve")
+    return subdag(hidden)
+
+@resolve_from_config(decorate_with=decorate_with)
+def result(hidden: dict[str, int]) -> dict[str, int]:
+    return hidden
+""",
+        hidden=nested.hidden,
+        resolver_calls=resolver_calls,
+    )
+
+    with pytest.raises(ValueError, match="hidden: unsupported Hamilton decorator extract_fields"):
+        hamilton_compat.compile_modules(
+            (root,),
+            {settings.ENABLE_POWER_USER_MODE: True},
+            _supported=(*hamilton_compat._SUPPORTED, resolve_from_config, subdag),
+        )
+
+    assert resolver_calls == ["resolve"]
+    assert expansions == []
+
+
+@pytest.mark.asyncio
+async def test_subdag_keeps_exact_excluded_helper_untyped_and_ignores_it(module_factory):
+    from hamilton.function_modifiers.recursive import subdag
+
+    nested = module_factory(
+        """
+from hamilton.function_modifiers import hamilton_exclude
+
+@hamilton_exclude
+def ignored(value):
+    raise AssertionError("excluded helper must not execute")
+
+def selected() -> int:
+    return 3
+"""
+    )
+    root = module_factory(
+        """
+from hamilton.function_modifiers import subdag
+
+@subdag(nested)
+def result(selected: int) -> int:
+    return selected
+""",
+        nested=nested,
+    )
+
+    specs = hamilton_compat.compile_modules(
+        (root,),
+        {},
+        _supported=(*hamilton_compat._SUPPORTED, subdag),
+    )
+
+    assert await PreparedPlan(specs, ["result"]).execute() == {"result": 3}
+
+
+def test_delayed_subdag_preflights_hidden_function_signature(module_factory):
+    from hamilton.function_modifiers.recursive import subdag
+
+    resolver_calls: list[str] = []
+    nested = module_factory(
+        """
+def hidden(*values: int) -> int:
+    return len(values)
+"""
+    )
+    root = module_factory(
+        """
+from hamilton.function_modifiers import hamilton_exclude, resolve_from_config, subdag
+
+@hamilton_exclude
+def decorate_with():
+    resolver_calls.append("resolve")
+    return subdag(hidden)
+
+@resolve_from_config(decorate_with=decorate_with)
+def result(hidden: int) -> int:
+    return hidden
+""",
+        hidden=nested.hidden,
+        resolver_calls=resolver_calls,
+    )
+
+    with pytest.raises(TypeError, match="hidden: variadic and positional-only parameters unsupported"):
+        hamilton_compat.compile_modules(
+            (root,),
+            {settings.ENABLE_POWER_USER_MODE: True},
+            _supported=(*hamilton_compat._SUPPORTED, resolve_from_config, subdag),
+        )
+
+    assert resolver_calls == ["resolve"]
+
+
+def test_delayed_subdag_rejects_reflection_cycle_once(module_factory):
+    from hamilton.function_modifiers.recursive import subdag
+
+    resolver_calls: list[str] = []
+    module = module_factory(
+        """
+from hamilton.function_modifiers import hamilton_exclude, resolve_from_config, subdag
+
+@hamilton_exclude
+def decorate_with():
+    resolver_calls.append("resolve")
+    return subdag(result)
+
+@resolve_from_config(decorate_with=decorate_with)
+def result(result: int) -> int:
+    return result
+""",
+        resolver_calls=resolver_calls,
+    )
+
+    with pytest.raises(ValueError, match="Recursive subdag declaration cycle at result"):
+        hamilton_compat.compile_modules(
+            (module,),
+            {settings.ENABLE_POWER_USER_MODE: True},
+            _supported=(*hamilton_compat._SUPPORTED, resolve_from_config, subdag),
+        )
+
+    assert resolver_calls == ["resolve"]
+
+
+def test_nested_delayed_subdag_rejects_reflection_cycle_once(module_factory):
+    from hamilton.function_modifiers.recursive import subdag
+
+    resolver_calls: list[str] = []
+    nested = module_factory(
+        """
+from hamilton.function_modifiers import hamilton_exclude, resolve_from_config, subdag
+
+@hamilton_exclude
+def decorate_with():
+    resolver_calls.append("resolve")
+    return subdag(hidden)
+
+@resolve_from_config(decorate_with=decorate_with)
+def hidden(hidden: int) -> int:
+    return hidden
+""",
+        resolver_calls=resolver_calls,
+    )
+    root = module_factory(
+        """
+from hamilton.function_modifiers import subdag
+
+@subdag(hidden)
+def result(hidden: int) -> int:
+    return hidden
+""",
+        hidden=nested.hidden,
+    )
+
+    with pytest.raises(ValueError, match="Recursive subdag declaration cycle at hidden"):
+        hamilton_compat.compile_modules(
+            (root,),
+            {settings.ENABLE_POWER_USER_MODE: True},
+            _supported=(*hamilton_compat._SUPPORTED, resolve_from_config, subdag),
+        )
+
+    assert resolver_calls == ["resolve"]
+
+
+@pytest.mark.asyncio
+async def test_subdag_source_collection_allows_acyclic_sibling_reuse(module_factory):
+    from hamilton.function_modifiers.recursive import subdag
+
+    nested = module_factory(
+        """
+from hamilton.function_modifiers import subdag
+
+def second() -> int:
+    return 2
+
+@subdag(second)
+def first(second: int) -> int:
+    return second + 1
+"""
+    )
+    root = module_factory(
+        """
+from hamilton.function_modifiers import subdag
+
+@subdag(first, second)
+def result(first: int, second: int) -> int:
+    return first + second
+""",
+        first=nested.first,
+        second=nested.second,
+    )
+
+    specs = hamilton_compat.compile_modules(
+        (root,),
+        {},
+        _supported=(*hamilton_compat._SUPPORTED, subdag),
+    )
+
+    assert await PreparedPlan(specs, ["result"]).execute() == {"result": 5}

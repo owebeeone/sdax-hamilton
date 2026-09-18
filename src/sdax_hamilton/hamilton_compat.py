@@ -8,7 +8,7 @@ import inspect
 from collections.abc import Mapping
 from importlib import metadata
 from types import FunctionType, MappingProxyType, ModuleType
-from typing import Any, get_args, get_origin, get_type_hints
+from typing import Any, cast, get_args, get_origin, get_type_hints
 
 import hamilton
 from hamilton import graph, node
@@ -21,7 +21,6 @@ from hamilton.function_modifiers import (
     parameterize_sources,
     parameterize_values,
     parameterized_inputs,
-    parameterized_subdag,
     parametrized,
     parametrized_input,
     tag,
@@ -29,10 +28,10 @@ from hamilton.function_modifiers import (
 )
 from hamilton.function_modifiers.delayed import resolve, resolve_from_config
 from hamilton.function_modifiers.metadata import RayRemote, SchemaOutput, cache
-from hamilton.graph_utils import find_functions
 from hamilton.lifecycle.base import LifecycleAdapterSet
 
 from ._construction import resolve_nodes as _resolve_nodes
+from ._discovery import discover_declarations, discover_shutdowns_for
 from ._hamilton_provenance import (  # noqa: F401 -- retained private compatibility seam
     _LIFECYCLES,
     _copy_function,
@@ -147,27 +146,12 @@ def _validate_declaration(fn, supported=_SUPPORTED):
             )
 
 
-def _declaration_closure(declarations, supported):
-    collected = []
-    seen = set()
-    stack = list(reversed(declarations))
-    while stack:
-        declaration = stack.pop()
-        if declaration in seen:
-            continue
-        seen.add(declaration)
+def _declaration_closure(modules, supported):
+    snapshot = discover_declarations(modules)
+    declarations = (*snapshot.roots, *snapshot.nested)
+    for declaration in declarations:
         _validate_declaration(declaration, supported)
-        collected.append(declaration)
-        for modifier in _decorators(declaration):
-            if type(modifier) is parameterized_subdag:
-                for nested in reversed(modifier.load_from):
-                    if not isinstance(nested, FunctionType):
-                        raise ValueError(
-                            f"{declaration.__name__}: parameterized subdag requires "
-                            "function declarations"
-                        )
-                    stack.append(nested)
-    return tuple(collected)
+    return snapshot
 
 
 def _release_type(fn):
@@ -357,15 +341,14 @@ def compile_modules(modules, configuration, *, _supported=_SUPPORTED):
     _check_version()
     if not modules or any(not isinstance(module, ModuleType) for module in modules):
         raise TypeError("Driver requires one or more Python modules")
-    functions = dict.fromkeys(fn for module in modules for _, fn in find_functions(module))
-    declarations = tuple(fn for fn in functions if not hasattr(fn, "__sdax_shutdown__"))
-    all_declarations = _declaration_closure(declarations, _supported)
+    discovery = _declaration_closure(modules, _supported)
+    declarations = discovery.roots
+    all_declarations = (*discovery.roots, *discovery.nested)
+    known_declarations = set(all_declarations)
     owned: dict[
         FunctionType, list[tuple[FunctionType, str | tuple[str, ...] | None, Policy, Any]]
     ] = {}
-    for release in functions:
-        if not hasattr(release, "__sdax_shutdown__"):
-            continue
+    for release in discovery.shutdowns:
         owner, target, policy = release.__sdax_shutdown__
         if owner not in all_declarations:
             raise ValueError(f"{release.__name__}: owner not discovered in supplied modules")
@@ -380,10 +363,22 @@ def compile_modules(modules, configuration, *, _supported=_SUPPORTED):
         if hasattr(declaration, "__sdax_execution__")
     }
 
-    capture = _ProvenanceCapture(owned, _supported)
+    validated_declarations = set(all_declarations)
+
+    def validate_captured(declaration):
+        if declaration in validated_declarations:
+            return
+        _validate_declaration(declaration, _supported)
+        validated_declarations.add(declaration)
+
+    capture = _ProvenanceCapture(
+        owned,
+        _supported,
+        validate_declaration=validate_captured,
+    )
     release_specs = {
         owner: [
-            (capture.clone(release), target, policy, release_type)
+            (capture.clone(release, validate=False), target, policy, release_type)
             for release, target, policy, release_type in releases
         ]
         for owner, releases in owned.items()
@@ -397,23 +392,42 @@ def compile_modules(modules, configuration, *, _supported=_SUPPORTED):
         for fn in declarations:
             if _excluded(fn):
                 continue
-            expanded = tuple(_resolve_nodes(capture.clone(fn), dict(configuration)))
+            with capture.resolving(fn):
+                expanded = tuple(_resolve_nodes(capture.clone(fn), dict(configuration)))
             if not expanded:
                 continue
             facts = {entry.name: capture.fact(entry) for entry in expanded}
-            undiscovered = {
-                fact.declaration
-                for fact in facts.values()
-                if fact.actual_call and fact.declaration not in all_declarations
-            }
-            if undiscovered:
-                undiscovered_names = sorted(
-                    f"{declaration.__module__}.{declaration.__qualname__}"
-                    for declaration in undiscovered
+            undiscovered = tuple(
+                dict.fromkeys(
+                    fact.declaration
+                    for fact in facts.values()
+                    if fact.actual_call and fact.declaration not in known_declarations
                 )
-                raise ValueError(
-                    f"generated declarations were not discovered: {undiscovered_names}"
+            )
+            if any(not isinstance(declaration, FunctionType) for declaration in undiscovered):
+                raise ValueError("generated declaration has no function identity")
+            helper_functions = cast(tuple[FunctionType, ...], undiscovered)
+            if helper_functions:
+                helper_releases = discover_shutdowns_for(helper_functions)
+                helper_owners = tuple(
+                    dict.fromkeys(
+                        getattr(release, "__sdax_shutdown__")[0]
+                        for release in helper_releases
+                    )
                 )
+                all_declarations = (*all_declarations, *helper_functions)
+                known_declarations.update(helper_functions)
+                capture.owned = frozenset((*capture.owned, *helper_owners))
+                for owner in helper_functions:
+                    if hasattr(owner, "__sdax_execution__"):
+                        execution_specs[owner] = owner.__sdax_execution__
+                for release in helper_releases:
+                    owner, target, policy = getattr(release, "__sdax_shutdown__")
+                    release_type = _release_type(release)
+                    owned.setdefault(owner, []).append((release, target, policy, release_type))
+                    release_specs.setdefault(owner, []).append(
+                        (capture.clone(release, validate=False), target, policy, release_type)
+                    )
             generated_names = {entry.name for entry in expanded}
             if len(generated_names) != len(expanded):
                 raise ValueError(f"{fn.__name__}: duplicate generated Hamilton node")
