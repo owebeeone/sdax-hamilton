@@ -1,7 +1,8 @@
 # Complete Hamilton decorator support: phased execution plan
 
-Date: 18 September 2026. Status: revised after independent safety and architecture
-reviews; implementation has not started. Baseline: frontend v0.1.0 (`2ef785a`),
+Date: 18 September 2026. Status: implementation in progress following independent
+safety and architecture reviews; see [execution record](Coverage-Execution.md).
+Baseline: frontend v0.1.0 (`2ef785a`),
 SDAX 0.7.2, Hamilton 1.90.0. Review dispositions are below; secondary assessments are recorded in the linked reviews.
 
 Expand support by reusing Hamilton's decorator expansion and SDAX's execution.
@@ -487,11 +488,14 @@ changes, untracked files and build directories. `--clean`, `--bare`, clone-time
 `merge --remote <lane>`. Keep the clone source quiet during each copy; provision
 lanes serially, then start parallel workers. Never use Git worktrees here.
 
-The current root has unrelated pending changes; the package also has this
-planning/review work pending. Before provisioning, record status and the package baseline. Do not
-commit, reset or discard unrelated root work to manufacture a clean workspace.
-Verbatim clones inherit it: stage/commit **only the selected package**, and never
-publish a worker clone directly.
+Record status and the package baseline before provisioning. The user subsequently
+authorized committing all work before the initial clones; that checkpoint is
+recorded in the execution record. For later work, do not reset or discard unrelated
+changes to manufacture a clean workspace. Verbatim clones inherit source state:
+stage/commit **only the assigned package changes**, and never publish a worker
+clone directly. Commit GWZ-generated root lock/integrity updates before family
+merges; this build otherwise reports publication-baseline drift. Never edit those
+managed files by hand.
 Verbatim copies can also contain private evidence, ignored local data and any
 credentials present in the source tree. Keep destinations under equivalent access
 restrictions; never upload a whole clone/archive as a public artifact or CI cache.
@@ -530,8 +534,8 @@ Receive committed work in the integrator workspace, not by a worker pushing into
 ```sh
 cd /Users/owebeeone/limbo/sdax-wz
 GWZ=/Users/owebeeone/.cargo/bin/gwz
-"$GWZ" --target sdax-hamilton merge --remote ham-expansion codex/ham-expansion \
-  --dry-run
+# Inspect the committed package diff first. GWZ 1.0.14 advertises --dry-run but
+# refuses it for family merges; do not rely on it as an available preview.
 "$GWZ" --target sdax-hamilton merge --remote ham-expansion codex/ham-expansion \
   --wait 60
 "$GWZ" merge --status

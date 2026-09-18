@@ -62,11 +62,11 @@ can change public compatibility claims.
 | P0 | Complete | Reviewed-plan requirements mapped to existing implementation above; bounded initial ownership assigned |
 | P1 | Complete for initial lanes | Four new oracle characterizations pass; full source suite 179 passed on Python 3.12.12; changed fixtures pass Ruff |
 | S | Passed bounded feasibility gate | Independent safety and architecture reviewers approve P2/P3; proof commit `827cda8`; production selection/ownership enforcement remains P4/E |
-| A / QA | Passed bounded gate | Alias/config/metadata `326c18e`; independent safety/architecture reviews pass |
+| A / QA | Implementation integrated; QA reopened | Initial reviews passed `326c18e`; later construction-log sentinel finding requires correction before QA completion |
 | U1 | Complete as inactive correction | `20c332a`; upstream expansion delegated, async source preserved; C admission still pending |
 | U2 | Complete as inactive correction | `d9c3c81`; exact admitted LoadFrom collection required after the compiler version gate; F admission still pending |
 | P2 | In progress | Sol provenance lane owns compiler/NodeSpec capture; no broad family activation |
-| P3 | Under review | `76a5d56`; original consumer requirements checked through existing selection/runtime paths |
+| P3 | Passed bounded gate | `76a5d56`; both independent reviewers pass; original consumer requirements use existing selection/runtime paths |
 | P4 / B / C / E / F | Preparation | Six editor lanes after S; implement against foundations, qualify before activation |
 | QB onward | Planned | Follow the reviewed DAG; no early activation of unqualified families |
 
@@ -97,3 +97,15 @@ Two more lanes prepare after S: `ham-validation` (Sol/high) for E/P4, and
 read-only until their local clones are ready. Existing pipeline/loader workers
 continue into C/F; the provenance worker owns shared compiler integration. This
 keeps two Sol and four Terra editing lanes, plus independent Sol reviewers.
+
+Both additional clones are ready at checkpoint `bd69ba4`. The aliases lane takes
+the construction-diagnostic correction before D2/D3 qualification: Hamilton's
+`resolve_nodes` logs ordinary construction exceptions, including callback payloads.
+The correction must preserve exception identity, avoid automatic raw logging, and
+avoid global logger changes, copied compilation logic or repeated callbacks. QA is
+reopened for this finding; earlier frozen reviews remain historical evidence.
+
+Mypy follows the active interpreter rather than forcing Python 3.11 while parsing
+newer-interpreter dependency stubs. The existing CI matrix still checks 3.11–3.13;
+this resolves the observed NumPy 3.12-stub parse failure without changing runtime
+dependencies or the package's Python minimum.
