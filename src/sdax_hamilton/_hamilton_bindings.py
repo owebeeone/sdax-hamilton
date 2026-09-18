@@ -134,21 +134,27 @@ def _capture_output(
     if unknown:
         raise ValueError(f"{fn.__name__}: unknown bound parameter {sorted(unknown)[0]}")
     requirements: dict[str, list[Any]] = {}
-    defaults: dict[str, object] = {}
+    defaults: dict[str, list[object]] = {}
     required: set[str] = set()
+    unbound = set(parameters) - set(bindings)
+    literal_fallbacks = {
+        name: binding.value
+        for name, binding in bindings.items()
+        if type(binding) is LiteralDependency
+    }
     for name, parameter in parameters.items():
         if name not in hints:
             raise TypeError(f"{fn.__name__}.{name}: missing type")
         annotation = hints[name]
         validate_type(annotation)
-        binding = bindings.get(name)
-        if binding is None:
+        if name not in bindings:
             requirements.setdefault(name, []).append(annotation)
             if parameter.default is not inspect.Parameter.empty:
-                _record_default(fn, name, parameter.default, defaults)
+                _record_default(name, parameter.default, defaults)
             else:
                 required.add(name)
             continue
+        binding = bindings[name]
         if type(binding) is LiteralDependency:
             if not accepts(binding.value, annotation):
                 raise TypeError(f"{fn.__name__}.{name}: bound literal has wrong type")
@@ -162,6 +168,8 @@ def _capture_output(
                 defaults,
                 required,
                 parameters,
+                unbound,
+                literal_fallbacks,
                 fallback=parameter.default,
             )
             continue
@@ -177,7 +185,15 @@ def _capture_output(
                         raise TypeError(f"{fn.__name__}.{name}: bound literal has wrong type")
                 else:
                     _source_requirement(
-                        fn, item, component, requirements, defaults, required, parameters
+                        fn,
+                        item,
+                        component,
+                        requirements,
+                        defaults,
+                        required,
+                        parameters,
+                        unbound,
+                        literal_fallbacks,
                     )
             continue
         raise ValueError(f"{fn.__name__}.{name}: grouped/config binding unsupported")
@@ -185,7 +201,7 @@ def _capture_output(
         raise ValueError(f"{fn.__name__}: binding collides with Hamilton wrapper parameter")
     captured = {}
     for name, contracts in requirements.items():
-        default = MISSING if name in required else defaults.get(name, MISSING)
+        default = MISSING if name in required else _merged_default(fn, name, defaults.get(name, []))
         if default is not MISSING and not all(accepts(default, contract) for contract in contracts):
             raise TypeError(f"{fn.__name__}.{name}: bound default has wrong type")
         captured[name] = InputSpec(contracts[0], default, tuple(contracts))
@@ -197,9 +213,11 @@ def _source_requirement(
     binding: UpstreamDependency,
     annotation: Any,
     requirements: dict[str, list[Any]],
-    defaults: dict[str, object],
+    defaults: dict[str, list[object]],
     required: set[str],
     parameters: Mapping[str, inspect.Parameter],
+    unbound: set[str],
+    literal_fallbacks: Mapping[str, object],
     *,
     fallback: object = inspect.Parameter.empty,
 ) -> None:
@@ -208,22 +226,30 @@ def _source_requirement(
         raise ValueError(f"{fn.__name__}: source must name a node")
     requirements.setdefault(source, []).append(annotation)
     source_parameter = parameters.get(source)
-    if source_parameter is not None:
+    if source in literal_fallbacks:
+        _record_default(source, literal_fallbacks[source], defaults)
+    elif source_parameter is not None and source in unbound:
         if source_parameter.default is inspect.Parameter.empty:
             required.add(source)
         else:
-            _record_default(fn, source, source_parameter.default, defaults)
+            _record_default(source, source_parameter.default, defaults)
     elif fallback is inspect.Parameter.empty:
         required.add(source)
     else:
-        _record_default(fn, source, fallback, defaults)
+        _record_default(source, fallback, defaults)
 
 
-def _record_default(fn: Any, name: str, default: object, defaults: dict[str, object]) -> None:
-    existing = defaults.get(name, MISSING)
-    if existing is not MISSING and existing is not default:
+def _record_default(name: str, default: object, defaults: dict[str, list[object]]) -> None:
+    defaults.setdefault(name, []).append(default)
+
+
+def _merged_default(fn: Any, name: str, defaults: list[object]) -> object:
+    if not defaults:
+        return MISSING
+    default = defaults[0]
+    if any(candidate is not default for candidate in defaults[1:]):
         raise ValueError(f"{fn.__name__}.{name}: conflicting merged source defaults")
-    defaults[name] = default
+    return default
 
 
 def _group_items(fn: Any, binding: GroupedListDependency | GroupedDictDependency) -> tuple[Any, ...]:

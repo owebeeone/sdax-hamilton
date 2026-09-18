@@ -77,6 +77,23 @@ def test_binding_capture_requires_a_merged_source_when_any_consumer_is_required(
     assert captured["result"]["seed"].default is MISSING
 
 
+def test_binding_capture_ignores_optional_conflicts_when_a_later_consumer_is_required():
+    def result(first: int = 3, second: int = 4, *, required: int) -> int:
+        return first + second + required
+
+    captured = _capture(
+        result,
+        inject(
+            first=source("seed"),
+            second=source("seed"),
+            required=source("seed"),
+        ),
+    )
+
+    assert captured["result"]["seed"].requirements == (int, int, int)
+    assert captured["result"]["seed"].default is MISSING
+
+
 def test_binding_capture_rejects_conflicting_merged_source_defaults():
     def result(first: int = 3, second: int = 4) -> int:
         return first + second
@@ -86,6 +103,17 @@ def test_binding_capture_rejects_conflicting_merged_source_defaults():
             result,
             inject(first=source("other"), second=source("other")),
         )
+
+
+def test_binding_capture_uses_a_literal_bound_source_as_the_rebound_source_default():
+    def result(a: int = 1, b: int = 2) -> int:
+        return a + b
+
+    captured = _capture(result, inject(a=source("b"), b=value(9)))
+    binding = captured["result"]["b"]
+
+    assert binding.requirements == (int,)
+    assert binding.default == 9
 
 
 @pytest.mark.asyncio
@@ -102,6 +130,20 @@ def result(value: int = 7) -> int:
     with pytest.raises(KeyError, match="seed"):
         oracle.execute(["result"])
     assert oracle.execute(["result"], inputs={"seed": 4}) == {"result": 4}
+
+
+def test_stock_literal_bound_source_uses_its_literal_before_the_rebound_default(hamilton_oracle):
+    source_text = """
+from hamilton.function_modifiers import inject, source, value
+
+@inject(a=source("b"), b=value(9))
+def result(a: int = 1, b: int = 2) -> int:
+    return a + b
+"""
+    oracle = hamilton_oracle(source_text)
+
+    assert oracle.execute(["result"]) == {"result": 18}
+    assert oracle.execute(["result"], inputs={"b": 5}) == {"result": 14}
 
 
 def test_binding_capture_admits_direct_group_values_and_source_defaults():
