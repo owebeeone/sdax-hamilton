@@ -1,5 +1,6 @@
 """Bounded proof that production compilation preserves generated-node provenance."""
 
+import asyncio
 import gc
 import inspect
 import logging
@@ -201,6 +202,59 @@ def projected(acquire: Handle) -> dict[str, int]:
     async with PreparedPlan(specs, ["number"]).open() as result:
         assert result == {"number": 7}
         assert events == [("acquire", 7)]
+    assert events == [("acquire", 7), ("release", 7)]
+
+
+
+@pytest.mark.asyncio
+async def test_cancellation_through_projection_releases_borrowed_owner_once(module_factory):
+    events = []
+    started = asyncio.Event()
+    module = module_factory(
+        """
+from hamilton.function_modifiers import extract_fields
+from sdax_hamilton import Acquisition, shutdown
+
+def acquire() -> Handle:
+    events.append(("acquire", 7))
+    return Handle(7, events)
+
+@shutdown(of=acquire)
+def close(state: Acquisition[Handle]) -> None:
+    assert state.has_value and state.value.live
+    state.value.live = False
+    events.append(("release", state.value.number))
+
+@extract_fields({"number": int})
+def projected(acquire: Handle) -> dict[str, int]:
+    assert acquire.live
+    return {"number": acquire.number}
+
+async def waiting(number: int) -> int:
+    started.set()
+    await asyncio.Event().wait()
+    return number
+""",
+        asyncio=asyncio,
+        Handle=Handle,
+        events=events,
+        started=started,
+    )
+    specs = hamilton_compat.compile_modules(
+        (module,), {}, _supported=(*hamilton_compat._SUPPORTED, extract_fields)
+    )
+    assert specs["number"].borrow_from == frozenset({"acquire"})
+    job = asyncio.create_task(PreparedPlan(specs, ["waiting"]).execute())
+    try:
+        await asyncio.wait_for(started.wait(), 1)
+        assert events == [("acquire", 7)]
+        job.cancel("borrowed projection cancelled")
+        with pytest.raises(asyncio.CancelledError, match="borrowed projection cancelled"):
+            await job
+    finally:
+        if not job.done():
+            job.cancel()
+            await asyncio.gather(job, return_exceptions=True)
     assert events == [("acquire", 7), ("release", 7)]
 
 

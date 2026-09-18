@@ -67,7 +67,7 @@ can change public compatibility claims.
 | U2 | Complete as inactive correction | `d9c3c81`; exact admitted LoadFrom collection required after the compiler version gate; F admission still pending |
 | P2 | Passed bounded foundation gate | `24f7787`; both independent reviewers pass single-resolution capture, nested mount handoff and construction disposal; no broad family activation |
 | P3 | Passed bounded gate | `76a5d56`; both independent reviewers pass; original consumer requirements use existing selection/runtime paths |
-| P4 | Reviewed, awaiting integration | `d9a80df`; both reviewers pass ownership traversal, replacement restrictions, validation roles and concrete default injection |
+| P4 | Integrated, bounded gate passed | `d9a80df` merged at `fbc9c69`; both reviewers pass ownership traversal, replacement restrictions, validation roles and concrete default injection |
 | B / C / D0–D3 / E / F | In progress | Six editor lanes; helpers and real Driver qualification precede public activation |
 | QB onward | Planned | Follow the reviewed DAG; no early activation of unqualified families |
 
@@ -147,3 +147,26 @@ cancelled a borrowed alias and observed one owner release with the original call
 cancellation preserved. A maintained borrow-specific cancellation composition
 case belongs to QB. Family admission, raw target remapping and full Hamilton
 validation diagnostics remain separate gates.
+
+Checkpoint `9a0d19a` also incorporates selected pipeline-step contract validation
+from `c07e2f9`; all 282 integrated tests pass. Two direct helper tests now use the
+existing construction exception boundary, since calling Hamilton directly would
+observe the private transport exception rather than the restored original error.
+
+The maintained projection/cancellation composition test exercises real Hamilton
+expansion, a generated borrow edge, an async downstream consumer and SDAX cleanup.
+It verifies that the owner stays live until cancellation, receives one populated
+release, and preserves the caller's cancellation message. This closes the P4
+reviewers' requested cancellation regression; broader QB composition remains open.
+
+Compiler file boundaries were reviewed using the split-files guidance. Defer
+relocation while family hooks are changing the same declarations; revisit at the
+first stable hook checkpoint. Capture/copy lifecycle machinery is the cohesive
+candidate boundary. Do not introduce another graph representation or split solely
+to satisfy a line count.
+
+Disk pressure briefly prevented pytest from creating temporary files. The six
+clones' 2,285-file upstream scratch trees were hash-identical to the root reference;
+they now link to that read-only reference instead of keeping duplicate copies.
+Product repositories remain independent GWZ local clones. Only regenerable mypy
+caches and these duplicate scratch copies were removed. Tests subsequently resumed.
