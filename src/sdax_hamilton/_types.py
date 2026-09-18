@@ -165,12 +165,6 @@ def compatible(produced: Any, required: Any) -> bool:
     required = type(None) if required is None else required
     if produced is Any or required is Any or produced == required:
         return True
-    if is_typeddict(produced):
-        # A TypedDict is a runtime dict, but proving structural compatibility
-        # with another TypedDict or a parameterized dictionary is out of scope.
-        return required in (dict, object)
-    if is_typeddict(required):
-        return False
     po, ro = get_origin(produced), get_origin(required)
     if po in (Union, types.UnionType):
         return all(compatible(arg, required) for arg in get_args(produced))
@@ -178,6 +172,12 @@ def compatible(produced: Any, required: Any) -> bool:
         return any(compatible(produced, arg) for arg in get_args(required))
     if po is Literal:
         return all(accepts(arg, required) for arg in get_args(produced))
+    if is_typeddict(produced):
+        # A TypedDict is a runtime dict, but proving structural compatibility
+        # with another TypedDict or a parameterized dictionary is out of scope.
+        return required in (dict, object)
+    if is_typeddict(required):
+        return False
     if po and isinstance(required, type):
         return isinstance(po, type) and issubclass(po, required)
     if ro is tuple and required is not Tuple and not get_args(required):

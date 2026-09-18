@@ -129,9 +129,11 @@ class FuturePayload(TypedDict, total=False):
 
 def test_typed_dict_edges_are_exact_except_for_bare_dict_consumers():
     assert compatible(Payload, Payload)
+    assert compatible(Payload, Payload | None)
     assert compatible(Payload, dict)
     assert compatible(Payload, object)
     assert not compatible(dict, Payload)
+    assert not compatible(dict, Payload | None)
     assert not compatible(Payload, DifferentPayload)
     assert not compatible(Payload, dict[str, object])
 
