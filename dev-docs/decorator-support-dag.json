@@ -17,7 +17,7 @@
       "consumes": {},
       "owner_role": "integrator",
       "kind": "foundation",
-      "status": "planned"
+      "status": "complete"
     },
     {
       "id": "P1",
@@ -30,7 +30,7 @@
       },
       "owner_role": "conformance",
       "kind": "foundation",
-      "status": "planned"
+      "status": "complete"
     },
     {
       "id": "A",
@@ -43,7 +43,7 @@
       },
       "owner_role": "metadata",
       "kind": "family",
-      "status": "planned"
+      "status": "complete"
     },
     {
       "id": "QA",
@@ -56,7 +56,7 @@
       },
       "owner_role": "integrator",
       "kind": "gate",
-      "status": "planned"
+      "status": "passed"
     },
     {
       "id": "S",
@@ -69,7 +69,7 @@
       },
       "owner_role": "compiler",
       "kind": "feasibility",
-      "status": "planned"
+      "status": "passed"
     },
     {
       "id": "P2",
@@ -82,7 +82,7 @@
       },
       "owner_role": "compiler",
       "kind": "foundation",
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "P3",
@@ -95,7 +95,7 @@
       },
       "owner_role": "types",
       "kind": "foundation",
-      "status": "planned"
+      "status": "complete"
     },
     {
       "id": "P4",
@@ -110,7 +110,7 @@
       },
       "owner_role": "lifecycle",
       "kind": "foundation",
-      "status": "planned"
+      "status": "complete"
     },
     {
       "id": "U1",
@@ -123,7 +123,7 @@
       },
       "owner_role": "pipeline-correction",
       "kind": "correction",
-      "status": "planned"
+      "status": "complete"
     },
     {
       "id": "U2",
@@ -136,7 +136,20 @@
       },
       "owner_role": "loader-correction",
       "kind": "correction",
-      "status": "planned"
+      "status": "complete"
+    },
+    {
+      "id": "U3",
+      "title": "Model required-config dispatch correction",
+      "depends_on": [
+        "P1"
+      ],
+      "consumes": {
+        "P1": "Pinned model/dynamic_transform missing configuration reproduction"
+      },
+      "owner_role": "models",
+      "kind": "correction",
+      "status": "in_progress"
     },
     {
       "id": "B",
@@ -151,7 +164,7 @@
       },
       "owner_role": "expansion",
       "kind": "family",
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "C",
@@ -166,7 +179,7 @@
       },
       "owner_role": "pipelines",
       "kind": "family",
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "D0",
@@ -181,7 +194,7 @@
       },
       "owner_role": "subdags",
       "kind": "capability",
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "D1",
@@ -194,7 +207,7 @@
       },
       "owner_role": "subdags",
       "kind": "family",
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "D2",
@@ -209,22 +222,24 @@
       },
       "owner_role": "resolvers",
       "kind": "family",
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "D3",
       "title": "Configured model generation",
       "depends_on": [
         "P2",
-        "P3"
+        "P3",
+        "U3"
       ],
       "consumes": {
         "P2": "Bound compute provenance and finite snapshot rules",
-        "P3": "Model and compute binding contracts"
+        "P3": "Model and compute binding contracts",
+        "U3": "Pinned required_config dispatch correction; constructor/config regression"
       },
       "owner_role": "models",
       "kind": "family",
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "E",
@@ -239,7 +254,7 @@
       },
       "owner_role": "validation",
       "kind": "family",
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "F",
@@ -254,7 +269,7 @@
       },
       "owner_role": "io",
       "kind": "family",
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "QB",
@@ -302,7 +317,7 @@
       },
       "owner_role": "pandas",
       "kind": "profile",
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "G2",
@@ -315,7 +330,7 @@
       },
       "owner_role": "polars",
       "kind": "profile",
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "G3",
@@ -328,7 +343,7 @@
       },
       "owner_role": "spark",
       "kind": "profile",
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "V",
@@ -341,7 +356,7 @@
       },
       "owner_role": "validator-plugins",
       "kind": "profile",
-      "status": "planned"
+      "status": "in_progress"
     },
     {
       "id": "QC",

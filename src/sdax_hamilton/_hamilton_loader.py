@@ -10,11 +10,14 @@ the process-wide Hamilton registry.
 from collections.abc import Iterable
 from copy import copy
 from types import GenericAlias, MethodType
-from typing import Any
+from typing import Any, cast
 
 from hamilton import node
-from hamilton.function_modifiers.adapters import LoadFromDecorator
+from hamilton.function_modifiers.adapters import AdapterFactory, LoadFromDecorator, SaveToDecorator
 from hamilton.function_modifiers.dependencies import LiteralDependency, UpstreamDependency
+from hamilton.io.data_adapters import DataLoader, DataSaver
+
+from ._types import accepts
 
 _DATA_LOADER_TAG = "hamilton.data_loader"
 _HAS_METADATA_TAG = "hamilton.data_loader.has_metadata"
@@ -22,6 +25,10 @@ _LOADER_NODE_TAG = "hamilton.data_loader.node"
 _LOADER_CLASS_TAG = "hamilton.data_loader.classname"
 _METADATA_TYPE = dict[str, Any]
 _INSTALL_MARKER = object()
+_FACTORY_DEFAULT_INDEX = 0
+_RESOLVED_KWARGS_DEFAULT_INDEX = 2
+_LOAD_DATA_DEFAULT_COUNT = 5
+_SAVE_DATA_DEFAULT_COUNT = 4
 
 
 def _tuple_type(first: Any, second: Any) -> Any:
@@ -91,6 +98,60 @@ def correct_load_from_annotations(
     return tuple(replacements.get(id(entry), entry) for entry in original)
 
 
+def _validate_captured_adapter_literals(
+    entry: node.Node,
+    *,
+    expected_default_count: int,
+    adapter_type: type[DataLoader] | type[DataSaver],
+    label: str,
+) -> None:
+    """Check one pinned generated adapter capture without another selection.
+
+    The two admitted Hamilton 1.90.0 callables retain their already selected
+    ``AdapterFactory`` and resolved literal mapping in fixed positional
+    defaults. This deliberately reads only that generated shape: it never
+    examines a registry or instantiates an adapter.
+    """
+    defaults = entry.callable.__defaults__
+    if defaults is None or len(defaults) != expected_default_count:
+        raise RuntimeError(f"Admitted {label} generated an unexpected adapter callable")
+    factory = defaults[_FACTORY_DEFAULT_INDEX]
+    resolved_kwargs = defaults[_RESOLVED_KWARGS_DEFAULT_INDEX]
+    if type(factory) is not AdapterFactory or type(resolved_kwargs) is not dict:
+        raise RuntimeError(f"Admitted {label} generated an unexpected adapter capture")
+    if type(factory.kwargs) is not dict or not isinstance(factory.adapter_cls, type):
+        raise RuntimeError(f"Admitted {label} generated an invalid adapter capture")
+    if not issubclass(factory.adapter_cls, adapter_type):
+        raise RuntimeError(f"Admitted {label} captured the wrong adapter kind")
+    adapter_cls = cast(type[DataLoader] | type[DataSaver], factory.adapter_cls)
+
+    contracts = {
+        **adapter_cls.get_required_arguments(),
+        **adapter_cls.get_optional_arguments(),
+    }
+    if set(resolved_kwargs) - set(contracts):
+        raise RuntimeError(f"Admitted {label} captured an unknown adapter binding")
+    for name, value in resolved_kwargs.items():
+        contract = contracts[name]
+        if not accepts(value, contract):
+            raise TypeError(
+                f"{adapter_cls.__qualname__}.{name}: bound {label} literal has wrong type"
+            )
+
+
+def _validate_captured_loader_literals(entries: Iterable[node.Node]) -> None:
+    """Select the exact raw loader node before checking its fixed capture."""
+    raw_entries = [entry for entry in entries if _loader_identity(entry, True) is not None]
+    if len(raw_entries) != 1:
+        raise RuntimeError("Admitted load_from produced an ambiguous raw loader node")
+    _validate_captured_adapter_literals(
+        raw_entries[0],
+        expected_default_count=_LOAD_DATA_DEFAULT_COUNT,
+        adapter_type=DataLoader,
+        label="loader",
+    )
+
+
 def install_load_from_correction(modifier: LoadFromDecorator) -> LoadFromDecorator:
     """Install the correction on one already-copied exact Hamilton modifier.
 
@@ -118,13 +179,54 @@ def install_load_from_correction(modifier: LoadFromDecorator) -> LoadFromDecorat
         load_type: type[type],
         namespace: str | None = None,
     ) -> list[node.Node]:
+        generated = original_get_loader_nodes(inject_parameter, load_type, namespace)
+        _validate_captured_loader_literals(generated)
         return list(
             correct_load_from_annotations(
-                original_get_loader_nodes(inject_parameter, load_type, namespace),
+                generated,
                 load_from_admitted=True,
             )
         )
 
     setattr(modifier, "get_loader_nodes", MethodType(corrected_get_loader_nodes, modifier))
     setattr(modifier, "__sdax_load_from_correction__", _INSTALL_MARKER)
+    return modifier
+
+
+def install_save_to_preflight(modifier: SaveToDecorator) -> SaveToDecorator:
+    """Install literal validation on one copied exact Hamilton saver modifier.
+
+    The caller owns the enclosing version gate and exact per-function admission.
+    The wrapper calls the copied original method once, then checks only the
+    selected factory and captured literal map on its returned saver node.
+    """
+    if type(modifier) is not SaveToDecorator:
+        raise TypeError("SaveTo preflight requires an exact SaveToDecorator copy")
+    if getattr(modifier, "__sdax_save_to_preflight__", None) is _INSTALL_MARKER:
+        return modifier
+
+    modifier.saver_classes = tuple(modifier.saver_classes)
+    modifier.kwargs = {
+        name: copy(value) if type(value) in (LiteralDependency, UpstreamDependency) else value
+        for name, value in modifier.kwargs.items()
+    }
+    original_create_saver_node = modifier.create_saver_node
+
+    def preflight_create_saver_node(
+        _self: SaveToDecorator,
+        node_: node.Node,
+        config: dict[str, Any],
+        fn: Any,
+    ) -> node.Node:
+        generated = original_create_saver_node(node_, config, fn)
+        _validate_captured_adapter_literals(
+            generated,
+            expected_default_count=_SAVE_DATA_DEFAULT_COUNT,
+            adapter_type=DataSaver,
+            label="saver",
+        )
+        return generated
+
+    setattr(modifier, "create_saver_node", MethodType(preflight_create_saver_node, modifier))
+    setattr(modifier, "__sdax_save_to_preflight__", _INSTALL_MARKER)
     return modifier
