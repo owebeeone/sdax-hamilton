@@ -7,7 +7,7 @@ from typing import Any
 
 from sdax import AsyncDagTaskProcessor, AsyncTask, task_func
 
-from ._model import NodeSpec
+from ._model import MISSING, NodeSpec
 from ._selection import Selection
 from ._types import accepts
 from .declarations import Acquisition
@@ -35,7 +35,11 @@ def call_callback(spec: NodeSpec):
         ctx.call_cancellations.pop(spec.name, None)
         if spec.release is not None:
             ctx.acquisitions[spec.name] = Acquisition(_typ=spec.output_type)
-        kwargs = {name: ctx.values[name] for name in spec.inputs if name in ctx.values}
+        kwargs = {
+            name: ctx.values[name] if name in ctx.values else binding.default
+            for name, binding in spec.inputs.items()
+            if name in ctx.values or binding.default is not MISSING
+        }
         for name, binding in spec.inputs.items():
             if name in kwargs and not all(
                 accepts(kwargs[name], requirement) for requirement in binding.effective_requirements
@@ -88,7 +92,11 @@ def build_processor(selection: Selection, check_outputs: bool):
     builder = AsyncDagTaskProcessor.builder()
     for name in sorted(selection.active):
         spec = selection.nodes[name]
-        dependencies = tuple(f"check:{dep}" for dep in spec.inputs if dep in selection.active)
+        dependencies = tuple(
+            f"check:{dependency}"
+            for dependency in sorted(spec.inputs.keys() | spec.borrow_from)
+            if dependency in selection.active
+        )
         builder.add_task(
             AsyncTask(
                 f"call:{name}",

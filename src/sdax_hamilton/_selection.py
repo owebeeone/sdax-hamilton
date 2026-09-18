@@ -5,8 +5,22 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
 
-from ._model import MISSING, NodeSpec
+from ._model import MISSING, GeneratedRole, NodeSpec
 from ._types import accepts, compatible, validate_type
+
+_INTERNAL_VALIDATION_ROLES = frozenset(
+    (GeneratedRole.VALIDATION_RAW, GeneratedRole.VALIDATION_EVIDENCE)
+)
+_NONREPLACEABLE_VALIDATION_ROLES = _INTERNAL_VALIDATION_ROLES | frozenset(
+    (GeneratedRole.VALIDATION_GATE,)
+)
+_ALLOWED_INTERNAL_EDGES = frozenset(
+    (
+        (GeneratedRole.VALIDATION_RAW, GeneratedRole.VALIDATION_EVIDENCE),
+        (GeneratedRole.VALIDATION_RAW, GeneratedRole.VALIDATION_GATE),
+        (GeneratedRole.VALIDATION_EVIDENCE, GeneratedRole.VALIDATION_GATE),
+    )
+)
 
 
 def names(values: Iterable[str], label: str, *, nonempty: bool = False) -> tuple[str, ...]:
@@ -49,6 +63,26 @@ def select(
         raise ValueError(f"Unknown override nodes: {sorted(overrides - nodes.keys())}")
     if overrides & config.keys():
         raise ValueError("Configuration and overrides must be disjoint")
+    internal_outputs = {
+        name
+        for name in outputs
+        if name in nodes and nodes[name].role in _INTERNAL_VALIDATION_ROLES
+    }
+    if internal_outputs:
+        raise ValueError(f"Validation internals cannot be selected: {sorted(internal_outputs)}")
+    protected_replacements = {
+        name
+        for name in config.keys() | overrides
+        if name in nodes
+        and (
+            nodes[name].role in _NONREPLACEABLE_VALIDATION_ROLES
+            or nodes[name].borrow_from
+        )
+    }
+    if protected_replacements:
+        raise ValueError(
+            f"Cannot replace validation or borrowed nodes: {sorted(protected_replacements)}"
+        )
     selected: set[str] = set()
     state: dict[str, int] = {}
     required: set[str] = set()
@@ -74,6 +108,14 @@ def select(
             raise ValueError(f"Cannot replace owned acquisition: {name}")
         if spec.release is not None and spec.policy.retries:
             raise ValueError(f"Acquisition retries require attempt cleanup: {name}")
+        owner_dependencies = []
+        for owner in spec.borrow_from:
+            if owner == name or owner not in nodes:
+                raise ValueError(f"Invalid borrowed owner for {name}: {owner}")
+            owner_spec = nodes[owner]
+            if not owner_spec.ownership_required or owner_spec.release is None:
+                raise ValueError(f"Borrowed owner is not an acquisition: {owner} -> {name}")
+            owner_dependencies.append((owner, False))
         selected.add(name)
         state[name] = 1
         stack.append((name, True))
@@ -94,9 +136,16 @@ def select(
             ):
                 raise TypeError(f"Invalid default for {name}.{dependency}")
             if dependency in nodes:
+                producer = nodes[dependency]
+                if (
+                    producer.role in _INTERNAL_VALIDATION_ROLES
+                    and (producer.role, spec.role) not in _ALLOWED_INTERNAL_EDGES
+                ):
+                    raise ValueError(
+                        f"Validation internal edge cannot be consumed: {dependency} -> {name}"
+                    )
                 if not all(
-                    compatible(nodes[dependency].output_type, requirement)
-                    for requirement in requirements
+                    compatible(producer.output_type, requirement) for requirement in requirements
                 ):
                     raise TypeError(f"Incompatible edge: {dependency} -> {name}")
                 dependencies.append((dependency, False))
@@ -107,7 +156,7 @@ def select(
                 contracts.setdefault(dependency, []).extend(requirements)
                 if binding.default is MISSING or dependency in optional:
                     required.add(dependency)
-        stack.extend(reversed(dependencies))
+        stack.extend(reversed((*dependencies, *owner_dependencies)))
     if overrides - selected:
         raise ValueError(f"Unused override declaration: {sorted(overrides - selected)}")
     if optional - required:

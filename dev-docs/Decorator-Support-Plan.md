@@ -1,7 +1,8 @@
 # Complete Hamilton decorator support: phased execution plan
 
-Date: 18 September 2026. Status: revised after independent safety and architecture
-reviews; implementation has not started. Baseline: frontend v0.1.0 (`2ef785a`),
+Date: 18 September 2026. Status: implementation in progress following independent
+safety and architecture reviews; see [execution record](Coverage-Execution.md).
+Baseline: frontend v0.1.0 (`2ef785a`),
 SDAX 0.7.2, Hamilton 1.90.0. Review dispositions are below; secondary assessments are recorded in the linked reviews.
 
 Expand support by reusing Hamilton's decorator expansion and SDAX's execution.
@@ -55,7 +56,13 @@ P0 records these goals and every activation/release gate checks them:
 - **Minimal core and dependencies.** No Hamilton-specific SDAX core change or
   dependency is part of this plan. A demonstrated exception requires a separate
   design decision. Keep internals inside one private compatibility boundary;
-  optional backend/plugin libraries load only for an explicitly selected profile.
+  frontend-added backend/plugin imports require an explicitly selected profile.
+  Hamilton 1.90.0 itself probes installed default-validator packages (including
+  Pandera) during modifier-package import, independently of registry autoload.
+  That trusted upstream import behavior is not frontend backend activation; it is
+  characterized in the isolated base-profile test. Base-only CI omits optional
+  dependencies. Preventing all upstream import probes would require a different
+  dependency or global import interception, neither of which this plan introduces.
 
 Non-goals: sandboxing hostile Python, proving arbitrary user functions pure or
 idempotent, generic deep-copy/serialization of Python object graphs, discovering
@@ -117,6 +124,7 @@ flowchart TD
   P4["P4: Generated ownership selection and policy"]
   U1["U1: Async pipeline correction"]
   U2["U2: Loader annotation correction"]
+  U3["U3: Model required-config dispatch correction"]
   B["B: Bindings and extraction"]
   C["C: Does pipelines and mutate"]
   D0["D0: Recursive discovery and mount provenance"]
@@ -150,6 +158,8 @@ flowchart TD
   P3 --> P4
   P1 --> U1
   P1 --> U2
+  P1 --> U3
+  U3 --> D3
   P2 --> B
   P3 --> B
   P2 --> C
@@ -247,12 +257,12 @@ Files follow cohesion, not the number of lanes. X does not shape a public API no
 
 | ID | Scope and acceptance |
 |---|---|
-| B | Full admitted source/value/group/default bindings; extraction/unpack and combined parameterization. Preserve each original requirement before source merging. Raw invalid values still trigger release; projected values borrow. Add TypedDict/required-optional-field checking only where a qualified form consumes it, with positive/unsafe-neighbor tests. Upstream-invalid nested/config groups stay invalid. |
+| B | Full admitted source/value/group/default bindings; extraction/unpack and combined parameterization. Preserve each original requirement before source merging. A rebound optional source may carry one concrete original default or the literal already bound to that rewritten source into the call boundary only when every merged consumer agrees on that same object; a required consumer wins and conflicting defaults are rejected as ambiguous. Raw invalid values still trigger release; projected values borrow. Add TypedDict/required-optional-field checking only where a qualified form consumes it, with positive/unsafe-neighbor tests. Upstream-invalid nested/config groups stay invalid. |
 | C | Does/replacement signatures, input/output pipe steps and mutate snapshots. Qualify unaffected sync/replacement cases independently of U1; QB joins U1 for promised async output pipes. Check captured step arguments and original vs replacement contracts. Respect import-time mutation/same-module restrictions. |
 | D0 | Shared recursive discovery/mount provenance capability. Recursively admit nested functions and shutdowns; identity is declaration plus mount path. Prove two mounts have independent ownership and no hidden expansion bypass. This narrow capability unlocks dataframe plugins before all subdag options. |
 | D1 | Complete public subdag/parameterized_subdag options over D0: namespacing, bindings/config, selected alternatives and owned replacement protection. A owns direct config predicates. |
 | D2 | Delayed resolve/resolve_from_config. Resolve once, preserve power-user opt-in and config/default requirements, recursively check the returned modifier. Its family remains disabled until separately qualified. No recursive invocation merely to inspect a result twice. |
-| D3 | Configured model/dynamic_transform construction, bound compute contracts and deprecations. Define shared instance state/reentrancy; trusted constructors do not acquire untracked external resources. No universal object snapshotter. |
+| D3 | Configured model/dynamic_transform construction, bound compute contracts and deprecations. U3 corrects pinned upstream `require_config()`/`required_config()` dispatch on the copied modifier by delegating to its existing method; prove required config reaches its constructor exactly once. Define shared instance state/reentrancy; trusted constructors do not acquire untracked external resources. No universal object snapshotter. |
 | E | Raw/validator/final validation graph roles, warn/fail/custom behavior, targeting and diagnostics policy below. Mandatory fail-validation survives `check_outputs=False`. No validation failure retries upstream acquisition. |
 | F | Load/save factories, dataloader/datasaver and Hamilton registry protocol. Qualify unaffected savers/adapters independently of U2; QB joins U2 for affected loaders. Snapshot selected adapter identity; no second registration system. In-memory/temp-file tests need no credentials/network. |
 
@@ -487,11 +497,14 @@ changes, untracked files and build directories. `--clean`, `--bare`, clone-time
 `merge --remote <lane>`. Keep the clone source quiet during each copy; provision
 lanes serially, then start parallel workers. Never use Git worktrees here.
 
-The current root has unrelated pending changes; the package also has this
-planning/review work pending. Before provisioning, record status and the package baseline. Do not
-commit, reset or discard unrelated root work to manufacture a clean workspace.
-Verbatim clones inherit it: stage/commit **only the selected package**, and never
-publish a worker clone directly.
+Record status and the package baseline before provisioning. The user subsequently
+authorized committing all work before the initial clones; that checkpoint is
+recorded in the execution record. For later work, do not reset or discard unrelated
+changes to manufacture a clean workspace. Verbatim clones inherit source state:
+stage/commit **only the assigned package changes**, and never publish a worker
+clone directly. Commit GWZ-generated root lock/integrity updates before family
+merges; this build otherwise reports publication-baseline drift. Never edit those
+managed files by hand.
 Verbatim copies can also contain private evidence, ignored local data and any
 credentials present in the source tree. Keep destinations under equivalent access
 restrictions; never upload a whole clone/archive as a public artifact or CI cache.
@@ -530,8 +543,8 @@ Receive committed work in the integrator workspace, not by a worker pushing into
 ```sh
 cd /Users/owebeeone/limbo/sdax-wz
 GWZ=/Users/owebeeone/.cargo/bin/gwz
-"$GWZ" --target sdax-hamilton merge --remote ham-expansion codex/ham-expansion \
-  --dry-run
+# Inspect the committed package diff first. GWZ 1.0.14 advertises --dry-run but
+# refuses it for family merges; do not rely on it as an available preview.
 "$GWZ" --target sdax-hamilton merge --remote ham-expansion codex/ham-expansion \
   --wait 60
 "$GWZ" merge --status

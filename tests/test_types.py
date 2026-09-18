@@ -1,9 +1,23 @@
 """The explicit declaration type subset, independent of Hamilton internals."""
 
 from collections.abc import Callable, Iterable, Mapping
-from typing import Annotated, Any, Dict, List, Literal, Protocol, Set, Tuple, TypeVar
+from typing import (
+    Annotated,
+    Any,
+    Dict,
+    List,
+    Literal,
+    NotRequired,
+    Protocol,
+    Required,
+    Set,
+    Tuple,
+    TypedDict,
+    TypeVar,
+)
 
 import pytest
+from typing_extensions import TypedDict as ExtensionsTypedDict
 
 from sdax_hamilton import Driver
 from sdax_hamilton._types import accepts, compatible, validate_type
@@ -19,6 +33,28 @@ class Child(Parent):
 
 class Shape(Protocol):
     def draw(self) -> None: ...
+
+
+class Payload(TypedDict, total=False):
+    required: Required[list[int]]
+    optional: NotRequired[dict[str, str]]
+
+
+class ExtensionPayload(ExtensionsTypedDict):
+    value: int
+
+
+class RecursivePayload(TypedDict):
+    name: str
+    child: NotRequired["RecursivePayload"]
+
+
+class NestedPayload(TypedDict):
+    child: NotRequired[Payload]
+
+
+class DifferentPayload(TypedDict, total=False):
+    required: Required[list[int]]
 
 
 @pytest.mark.parametrize(
@@ -50,6 +86,56 @@ def test_runtime_type_subset(annotation, good, bad):
     validate_type(annotation)
     assert accepts(good, annotation)
     assert not accepts(bad, annotation)
+
+
+def test_typed_dict_checks_required_optional_and_recursive_fields():
+    validate_type(Payload)
+    validate_type(ExtensionPayload)
+    validate_type(RecursivePayload)
+
+    assert accepts({"required": [1], "optional": {"kind": "test"}}, Payload)
+    assert accepts({"required": [1]}, Payload)
+    assert not accepts({}, Payload)
+    assert not accepts({"required": ["wrong"]}, Payload)
+    assert not accepts({"required": [1], "optional": {"kind": 1}}, Payload)
+    assert accepts({"value": 3}, ExtensionPayload)
+    assert not accepts({"value": "wrong"}, ExtensionPayload)
+    assert accepts({"child": {"required": [1]}}, NestedPayload)
+    assert not accepts({"child": {"required": ["wrong"]}}, NestedPayload)
+
+    cyclic: dict[str, object] = {"name": "root"}
+    cyclic["child"] = cyclic
+    assert accepts(cyclic, RecursivePayload)
+
+
+def test_future_typed_dict_annotations_preserve_required_field_markers(module_factory):
+    module = module_factory(
+        """
+from __future__ import annotations
+
+from typing import NotRequired, Required, TypedDict
+
+class FuturePayload(TypedDict, total=False):
+    required: Required[list[int]]
+    optional: NotRequired[str]
+"""
+    )
+
+    validate_type(module.FuturePayload)
+    assert accepts({"required": [1]}, module.FuturePayload)
+    assert not accepts({}, module.FuturePayload)
+    assert not accepts({"required": ["wrong"]}, module.FuturePayload)
+
+
+def test_typed_dict_edges_are_exact_except_for_bare_dict_consumers():
+    assert compatible(Payload, Payload)
+    assert compatible(Payload, Payload | None)
+    assert compatible(Payload, dict)
+    assert compatible(Payload, object)
+    assert not compatible(dict, Payload)
+    assert not compatible(dict, Payload | None)
+    assert not compatible(Payload, DifferentPayload)
+    assert not compatible(Payload, dict[str, object])
 
 
 @pytest.mark.parametrize("value", [None, object(), 1, ["anything"]])
@@ -123,7 +209,7 @@ def test_empty_tuple_edges_require_empty_producer(produced, required, expected):
 
 @pytest.mark.parametrize("required", ["tuple[()]", "Tuple[()]"])
 def test_nonempty_tuple_edge_rejected_before_callbacks(module_factory, required):
-    calls = []
+    calls: list[str] = []
     module = module_factory(
         f"""
 from typing import Tuple
@@ -150,7 +236,7 @@ def result(source: {required}) -> int:
         Callable[[int], str],
         Iterable[int],
         Mapping[str, int],
-        list[TypeVar("Item")],
+        list[TypeVar("Item")],  # type: ignore[misc]
         Literal[1.5],
         "UnresolvedForwardReference",
     ],
@@ -182,7 +268,7 @@ def test_invalid_edge_and_default_rejected_before_execution(module_factory, sour
 
 @pytest.mark.asyncio
 async def test_heterogeneous_tuple_input_checked_before_callback(module_factory):
-    calls = []
+    calls: list[str] = []
     mod = module_factory(
         """
 def result(pair: tuple[int, str]) -> str:

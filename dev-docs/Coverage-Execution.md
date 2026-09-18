@@ -62,12 +62,13 @@ can change public compatibility claims.
 | P0 | Complete | Reviewed-plan requirements mapped to existing implementation above; bounded initial ownership assigned |
 | P1 | Complete for initial lanes | Four new oracle characterizations pass; full source suite 179 passed on Python 3.12.12; changed fixtures pass Ruff |
 | S | Passed bounded feasibility gate | Independent safety and architecture reviewers approve P2/P3; proof commit `827cda8`; production selection/ownership enforcement remains P4/E |
-| A / QA | Passed bounded gate | Alias/config/metadata `326c18e`; independent safety/architecture reviews pass |
+| A / QA | Bounded gate passed | Initial implementation `326c18e`; P2 public-Driver regression closes construction-log sentinel finding |
 | U1 | Complete as inactive correction | `20c332a`; upstream expansion delegated, async source preserved; C admission still pending |
 | U2 | Complete as inactive correction | `d9c3c81`; exact admitted LoadFrom collection required after the compiler version gate; F admission still pending |
-| P2 | In progress | Sol provenance lane owns compiler/NodeSpec capture; no broad family activation |
-| P3 | Under review | `76a5d56`; original consumer requirements checked through existing selection/runtime paths |
-| P4 / B / C / E / F | Preparation | Six editor lanes after S; implement against foundations, qualify before activation |
+| P2 | Passed bounded foundation gate | `24f7787`; both independent reviewers pass single-resolution capture, nested mount handoff and construction disposal; no broad family activation |
+| P3 | Passed bounded gate | `76a5d56`; both independent reviewers pass; original consumer requirements use existing selection/runtime paths |
+| P4 | Integrated, bounded gate passed | `d9a80df` merged at `fbc9c69`; both reviewers pass ownership traversal, replacement restrictions, validation roles and concrete default injection |
+| B / C / D0–D3 / E / F | In progress | Six editor lanes; helpers and real Driver qualification precede public activation |
 | QB onward | Planned | Follow the reviewed DAG; no early activation of unqualified families |
 
 Initial local clones are ready: `ham-provenance`, `ham-aliases`, `ham-pipelines`
@@ -97,3 +98,75 @@ Two more lanes prepare after S: `ham-validation` (Sol/high) for E/P4, and
 read-only until their local clones are ready. Existing pipeline/loader workers
 continue into C/F; the provenance worker owns shared compiler integration. This
 keeps two Sol and four Terra editing lanes, plus independent Sol reviewers.
+
+Both additional clones are ready at checkpoint `bd69ba4`. The aliases lane takes
+the construction-diagnostic correction before D2/D3 qualification: Hamilton's
+`resolve_nodes` logs ordinary construction exceptions, including callback payloads.
+The correction must preserve exception identity, avoid automatic raw logging, and
+avoid global logger changes, copied compilation logic or repeated callbacks. QA is
+reopened for this finding; earlier frozen reviews remain historical evidence.
+
+Mypy follows the active interpreter rather than forcing Python 3.11 while parsing
+newer-interpreter dependency stubs. The existing CI matrix still checks 3.11–3.13;
+this resolves the observed NumPy 3.12-stub parse failure without changing runtime
+dependencies or the package's Python minimum.
+
+The isolated base-profile regression also identified a necessary precision change:
+Hamilton probes Pandera during modifier import even after registry autoload is
+disabled. The architecture reviewer accepted documenting this trusted upstream
+import behavior rather than adding a global import filter or fork. Frontend
+backend activation remains explicit; metadata never activates Ray or caching.
+The test isolates unavailable optional packages and separately asserts the pinned
+Pandera probe and absence of Ray import requests. This does not claim that ambient
+installed validator packages are never imported by Hamilton.
+
+Checkpoint `bc873ea` incorporates the bounded TypedDict checker and independent
+C/F/E construction helpers. All 251 tests pass on Python 3.12; Ruff and full
+package/authoring mypy on Python 3.11 pass. These helpers do not admit their
+decorator families. The TypedDict checker preserves the existing union rules and
+rejects structural equivalence between distinct TypedDict declarations.
+
+P2's production capture gate additionally requires nested namespace role
+preservation, per-mount resolver counts, finite metadata copies, and disposal after
+both successful and failed construction. Its public configuration-predicate
+regression must close the reopened construction-diagnostic QA finding. Explicit
+public shutdown targets remapped to transformed acquisition nodes remain an E/P4
+activation requirement, separate from this bounded foundation gate.
+
+Checkpoint `499b823` integrates P2's production capture with P3, construction
+exception transport and bounded TypedDict checking. All 255 source tests pass on
+Python 3.12 and the package/authoring mypy check passes. Independent foundation
+reviews are recorded in [safety](Compiler-Foundation-ReviewA6a.md) and
+[architecture](Compiler-Foundation-ReviewA6b.md). The public configuration-predicate
+test preserves the original exception, calls it once and leaves Hamilton's raw
+construction logging silent; the reopened A/QA issue is closed.
+
+P4's worker checkpoint has 277 passing tests. Both reviewers independently reran
+the suite, Ruff and direct role/ownership tests; the safety reviewer additionally
+cancelled a borrowed alias and observed one owner release with the original caller
+cancellation preserved. A maintained borrow-specific cancellation composition
+case belongs to QB. Family admission, raw target remapping and full Hamilton
+validation diagnostics remain separate gates.
+
+Checkpoint `9a0d19a` also incorporates selected pipeline-step contract validation
+from `c07e2f9`; all 282 integrated tests pass. Two direct helper tests now use the
+existing construction exception boundary, since calling Hamilton directly would
+observe the private transport exception rather than the restored original error.
+
+The maintained projection/cancellation composition test exercises real Hamilton
+expansion, a generated borrow edge, an async downstream consumer and SDAX cleanup.
+It verifies that the owner stays live until cancellation, receives one populated
+release, and preserves the caller's cancellation message. This closes the P4
+reviewers' requested cancellation regression; broader QB composition remains open.
+
+Compiler file boundaries were reviewed using the split-files guidance. Defer
+relocation while family hooks are changing the same declarations; revisit at the
+first stable hook checkpoint. Capture/copy lifecycle machinery is the cohesive
+candidate boundary. Do not introduce another graph representation or split solely
+to satisfy a line count.
+
+Disk pressure briefly prevented pytest from creating temporary files. The six
+clones' 2,285-file upstream scratch trees were hash-identical to the root reference;
+they now link to that read-only reference instead of keeping duplicate copies.
+Product repositories remain independent GWZ local clones. Only regenerable mypy
+caches and these duplicate scratch copies were removed. Tests subsequently resumed.

@@ -4,14 +4,14 @@ Date: 18 September 2026. Hamilton: 1.90.0. SDAX: 0.7.2. Plan task: S.
 
 ## Result
 
-The feasibility gate passes for its bounded slice. A test-local compiler probe
-captures mount, acquisition, projection and validation roles while delegating each
+The feasibility gate passes for its bounded slice. The production compiler now
+captures acquisition, projection and validation roles while delegating each
 Hamilton lifecycle operation once. It does not replay `resolve_nodes`, infer roles
 from generated names, patch process-global Hamilton objects, introduce a retained
-product graph, or change SDAX core. The probe temporarily keeps its Hamilton nodes
-and capture records so the test can inspect them. It lowers those nodes into the
-existing `NodeSpec`/`PreparedPlan` path only to prove real acquisition and release
-behavior. No decorator exercised here is admitted by the product compiler yet.
+product graph, or change SDAX core. The same lowering path used by public
+compilation consumes the capture records and returns only immutable `NodeSpec`
+values. The test enables a finite private supported-class set; none of the
+decorators exercised here is publicly admitted yet.
 
 The public regression is `tests/test_provenance_feasibility.py`. It constructs two
 mounts of the same subdag:
@@ -37,13 +37,21 @@ SDAX shutdown declaration. `number` comes from Hamilton `extract_fields`.
   output types and dependency mappings. The captured SDAX execution and a fresh
   stock Hamilton Driver both return `{"low": 2, "high": 5}`.
 - The delayed callback and copied resolver run once for each actual mount. The
-  recorded counts are `{("low",): 1, ("high",): 1}` in each construction context.
+  recorded count is one for `low` and one for `high` in each construction context.
   Preparing or executing the lowered SDAX plan does not resolve them again.
 - Capture records `low.acquire` as the acquisition, `low.number` as a projection,
   and the three `low.checked*` nodes as raw, validator evidence and final gate.
-  It also records the projection-source role, and asserts the complete same role
-  set for `high`. Dependency traversal from the low gate reaches exactly
+  The value feeding the projection remains the ordinary `VALUE` role because no
+  persistent consumer needs a separate projection-source label. The test asserts
+  the same complete role set for `high`. Dependency traversal from the low gate reaches exactly
   `low.acquire`; the high mount reaches exactly `high.acquire`.
+- Borrowing is computed once from the compiler's final resolved-node mapping. A
+  separate regression proves that a projection in one top-level declaration
+  retains an owner from another declaration without building a second graph.
+- A two-level mount regression uses different declarations with the same inner
+  `low`/`high` namespaces under different parents. Roles and owners cross each
+  namespace boundary through mount-scoped callable identity handoffs; no global
+  generated-name table is used.
 - Successful execution acquires and releases each mounted Handle once. When the
   low validation gate fails, both mounted acquisitions are still released once.
   The failure contains Hamilton's actual `DataValidationError`. Validation does
@@ -54,10 +62,16 @@ SDAX shutdown declaration. `number` comes from Hamilton `extract_fields`.
   objects retain identity.
 - The original decorator instances, Hamilton's `base.resolve_nodes` function and
   a Driver constructed before the probe remain unchanged and usable afterward.
+- The construction capture is observed through a weak reference and is collected
+  after compilation even while the returned `NodeSpec` callables remain usable.
+- Both a delayed resolver failure and a public `config` predicate failure preserve
+  the original exception object, callback count, context and cause. Hamilton emits
+  no error record, while an application log emitted immediately before the failure
+  remains visible. After the caller drops the exception, the capture is collected.
 
 ## Proven local seam
 
-The probe uses four narrow interception points on copied declarations and copied
+The compiler uses four narrow interception points on copied declarations and copied
 modifier instances:
 
 1. Recursively clone the finite `parameterized_subdag.load_from` declarations
@@ -75,34 +89,51 @@ modifier instances:
    and exact returned modifier class, then wrap that returned instance for its
    normal Hamilton lifecycle step.
 
-The probe retains temporary object-identity records and its Hamilton node tuple so
-assertions can inspect them after lowering. This proves that execution needs only
-the lowered `NodeSpec` mapping; it does not itself prove production object lifetime.
-P2 must consume the records during lowering and discard both the capture tables and
-Hamilton node collection before a Driver becomes executable, as the current
-compiler discards its temporary Hamilton graph.
+The compiler consumes temporary object-identity records during lowering. A
+`finally` block detaches all instance methods and clears every capture table on
+both success and construction failure. The local Hamilton node collection then
+falls out of scope before the Driver becomes executable. The weak-reference check
+proves that returned runtime callables do not retain the capture object.
+Copied lifecycle methods carry ordinary callback failures through Hamilton as a
+private `BaseException` transport and restore the original exception outside the
+upstream logging boundary. `KeyboardInterrupt`, `SystemExit`, cancellation and
+other user `BaseException` values are not caught.
 
 No Hamilton compiler algorithm is copied. The complete set of version-coupled
 object and ordering assumptions in this proof is:
 
 - lifecycle decorators remain attached through their `get_lifecycle_name()`
-  attributes and accept shallow copied instances;
+  attributes, remain in Hamilton's lifecycle-list order and accept shallow copied
+  instances with instance-bound method overrides;
 - `parameterized_subdag.load_from` contains the declarations it recursively
   resolves, `_gather_subdag_generators()` returns actual `subdag` instances, and
-  each instance exposes its declared namespace;
+  each instance exposes its declared namespace; generator creation precedes its
+  one `generate_nodes()` call for the corresponding mount;
 - `subdag.generate_nodes()` resolves `add_namespace` from that generated instance;
   `add_namespace()` returns one namespaced copy per input node in the same order;
+- nested `resolve_nodes()` and its delayed modifier lifecycle complete while the
+  generated subdag's explicit mount context is active;
 - `Node.copy_with()` and recursive collection preserve the generated callable and
   `originating_functions` identities needed before namespacing;
+- generated callable identity is stable only within one lifecycle expansion;
+  pending lookup therefore includes an explicit mount token, retains a strong
+  callable reference against `id()` reuse and consumes facts before disposal;
+- the final namespaced node may be a copy rather than the exact object returned by
+  a modifier; correlation therefore occurs at `subdag.add_namespace()`, before
+  the copied node replaces its source;
 - `extract_fields.transform_node()` returns its projection source first and its
   field projections afterward;
 - `BaseDataValidationDecorator.transform_node()` returns validator nodes followed
   by the final gate and raw node;
+- an untransformed standard node retains the copied declaration in
+  `originating_functions`, allowing the actual call to be attributed before a
+  generated family changes its callable;
 - the delayed resolver is called from `get_node_decorators()` once per nested
   `resolve_nodes()` operation and returns the modifier instance used by that same
   lifecycle pass; and
-- final Hamilton `input_types` describe the dependency mapping consumed by the
-  existing lowering and owner-reachability check.
+- namespaced generated names are unique in the final collection, and final
+  Hamilton `input_types` describe the dependency mapping consumed by the existing
+  lowering and owner-reachability check.
 
 These touchpoints must remain inside the existing private, fail-closed 1.90.0
 compatibility boundary. A Hamilton upgrade must rerun this fixture and review each
@@ -124,16 +155,15 @@ Once an acquisition is identified, final edges can prove that a projection or ga
 depends on it; the edges alone cannot decide which ancestor is the real acquisition
 and which generated values borrow from it.
 
-## Minimum follow-on compiler delta
+## Implemented compiler delta
 
-P2 needs a memoized recursive form of the current function-copy routine, a
-construction-local mount context and exact-family wrappers for the families it
-actually admits. It also needs a version-bounded namespace correlation hook because
-Hamilton replaces node objects while mounting. The resulting temporary records can
-populate the existing `NodeSpec` mapping with only facts consumed by later work:
-declaration/mount identity, generated role and known owner/borrow origin. P2 should
-not retain a Hamilton `FunctionGraph`, add another executable graph, or expose this
-probe as a public modifier API.
+P2 now has a memoized recursive function-copy routine, a construction-local mount
+context and exact-family wrappers for this bounded slice. The version-bounded
+namespace hook correlates nodes before Hamilton replaces them while mounting. The
+temporary records populate the existing `NodeSpec` mapping with only persistent
+facts consumed by later work: generated role, original declaration and known
+owner/borrow node. Mount identity stays temporary. The compiler retains no Hamilton
+`FunctionGraph`, adds no second executable graph and exposes no modifier API.
 
 P4 remains responsible for using those facts in selection and lifetime behavior.
 The feasibility lowering attaches shutdown only to the two real acquisition nodes;
@@ -142,11 +172,34 @@ ownership.
 
 ## Evidence still required
 
-This gate does not complete P2, P3, P4, D0, D1, D2 or E. Integration still needs
-public product fields and consumers, recursive admission checks, nested/shared
-mount cases, selection/config/override protection, validation diagnostics policy,
-metadata snapshots, broader decorator families and the full lifecycle composition
-suite. The fixture covers one level and two mounts of one declared composition.
+This gate does not complete broad P2, P3, P4, D0, D1, D2 or E. Integration still
+needs per-family qualification and public admission, nested/shared mount cases,
+selection/config/override protection, validation diagnostics policy, metadata
+snapshots, broader decorator families and the full lifecycle composition suite.
+Selected pipeline helpers must currently be declarations discovered from a
+supplied module or an already-recognized recursive declaration source. If a
+delayed resolver returns a pipeline that calls a function from another module
+which was not supplied, compilation rejects the undiscovered actual call after
+the resolver's single construction callback and before graph effects. This is an
+interim fail-closed restriction, not evidence of full delayed/pipeline coverage.
+A later bounded discovery step may consult the already-loaded defining module of
+that explicitly referenced function to find its local shutdown declaration; it
+must not import modules or crawl unrelated declarations.
+Pipeline step callables and `does` replacements are limited to exact Python
+functions in this bounded slice. Callable instances are rejected before expansion
+because preserving their mutable state and SDAX policy provenance needs a separate
+reentrancy and snapshot qualification; silently attributing such a call to its
+wrapper would bypass the instance's execution policy.
+For an exact-function `does` replacement, the replaced declaration remains the
+logical owner of the generated call; policy attached to the replacement helper is
+not inherited. Exact-function pipeline steps remain distinct graph calls and keep
+their own discovered SDAX policy and shutdown facts.
+The fixture covers one level and two mounts of one declared composition.
+Before validation is publicly activated, shutdown's public declaration target must
+be remapped to the captured actual raw call. The bounded fixture proves the default
+`@shutdown(of=resource)` case, where the raw call is the sole actual candidate; it
+does not yet qualify an explicit `target_="resource"` spelling when Hamilton has
+renamed that call to `resource_raw`.
 Packaging and Python 3.11/3.13 gates also remain outside this local feasibility run.
 
 Local verification:
@@ -154,9 +207,11 @@ Local verification:
 ```text
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src <qualification-python> -m pytest \
   -p no:cacheprovider tests/test_provenance_feasibility.py -q
-2 passed
+11 passed in 0.66s
 
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src <qualification-ruff> \
   check tests/test_provenance_feasibility.py
 All checks passed!
 ```
+
+The complete local source suite also passes: `288 passed in 1.97s`.

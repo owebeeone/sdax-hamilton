@@ -5,15 +5,15 @@ mutable graph escapes this boundary; SDAX receives only our immutable node model
 """
 
 import inspect
-from copy import copy
+from collections.abc import Mapping
 from importlib import metadata
 from types import FunctionType, MappingProxyType, ModuleType
 from typing import Any, get_args, get_origin, get_type_hints
 
 import hamilton
 from hamilton import graph, node
+from hamilton.function_modifiers import base as base  # noqa: F401 -- retained test seam
 from hamilton.function_modifiers import (
-    base,
     config,
     hamilton_exclude,
     inject,
@@ -21,6 +21,7 @@ from hamilton.function_modifiers import (
     parameterize_sources,
     parameterize_values,
     parameterized_inputs,
+    parameterized_subdag,
     parametrized,
     parametrized_input,
     tag,
@@ -31,21 +32,18 @@ from hamilton.function_modifiers.metadata import RayRemote, SchemaOutput, cache
 from hamilton.graph_utils import find_functions
 from hamilton.lifecycle.base import LifecycleAdapterSet
 
+from ._construction import resolve_nodes as _resolve_nodes
+from ._hamilton_provenance import (  # noqa: F401 -- retained private compatibility seam
+    _LIFECYCLES,
+    _copy_function,
+    _ProvenanceCapture,
+)
 from ._model import MISSING, InputSpec, NodeSpec
 from ._types import accepts, compatible, validate_type
 from .declarations import Acquisition, Policy
 
 SUPPORTED_HAMILTON_VERSION = "1.90.0"
 SUPPORTED_SDAX_VERSION = "0.7.2"
-_LIFECYCLES = (
-    base.NodeResolver,
-    base.NodeCreator,
-    base.NodeExpander,
-    base.NodeTransformer,
-    base.NodeInjector,
-    base.NodeDecorator,
-    base.DynamicResolver,
-)
 _EXCLUDED = type(hamilton_exclude)
 _SUPPORTED = (
     config,
@@ -110,29 +108,7 @@ def _excluded(fn):
     return any(type(modifier) is _EXCLUDED for modifier in _decorators(fn))
 
 
-def _copy_function(fn):
-    # config.resolve renames its argument. Isolate that operation from user modules.
-    clone = FunctionType(fn.__code__, fn.__globals__, fn.__name__, fn.__defaults__, fn.__closure__)
-    clone.__kwdefaults__ = dict(fn.__kwdefaults__ or {})
-    clone.__annotations__ = dict(fn.__annotations__)
-    clone.__dict__.update(fn.__dict__)
-    for stage in _LIFECYCLES:
-        key = stage.get_lifecycle_name()
-        if hasattr(fn, key):
-            modifiers = []
-            for modifier in getattr(fn, key):
-                snapshot = copy(modifier)
-                if isinstance(modifier, parameterize):
-                    snapshot.parameterization = {
-                        output: {name: copy(binding) for name, binding in bindings.items()}
-                        for output, bindings in modifier.parameterization.items()
-                    }
-                modifiers.append(snapshot)
-            setattr(clone, key, modifiers)
-    clone.__module__ = fn.__module__
-    clone.__qualname__ = fn.__qualname__
-    clone.__doc__ = fn.__doc__
-    return clone
+
 
 
 def _validate_bindings(fn, modifier, hints, parameters):
@@ -173,7 +149,7 @@ def _validate_bindings(fn, modifier, hints, parameters):
                 )
 
 
-def _validate_declaration(fn):
+def _validate_declaration(fn, supported=_SUPPORTED):
     if _excluded(fn):
         return
     if inspect.isgeneratorfunction(fn) or inspect.isasyncgenfunction(fn):
@@ -194,12 +170,35 @@ def _validate_declaration(fn):
         raise TypeError(f"{fn.__name__}: missing return type")
     validate_type(hints["return"])
     for modifier in _decorators(fn):
-        if type(modifier) not in _SUPPORTED:
+        if type(modifier) not in supported:
             raise ValueError(
                 f"{fn.__name__}: unsupported Hamilton decorator {type(modifier).__name__}"
             )
         if isinstance(modifier, parameterize):
             _validate_bindings(fn, modifier, hints, parameters)
+
+
+def _declaration_closure(declarations, supported):
+    collected = []
+    seen = set()
+    stack = list(reversed(declarations))
+    while stack:
+        declaration = stack.pop()
+        if declaration in seen:
+            continue
+        seen.add(declaration)
+        _validate_declaration(declaration, supported)
+        collected.append(declaration)
+        for modifier in _decorators(declaration):
+            if type(modifier) is parameterized_subdag:
+                for nested in reversed(modifier.load_from):
+                    if not isinstance(nested, FunctionType):
+                        raise ValueError(
+                            f"{declaration.__name__}: parameterized subdag requires "
+                            "function declarations"
+                        )
+                    stack.append(nested)
+    return tuple(collected)
 
 
 def _release_type(fn):
@@ -253,13 +252,82 @@ def _targets(target, names, label):
     return frozenset(selected)
 
 
-def compile_modules(modules, configuration):
+def _actual_targets(target, owner, root, entries, facts, label):
+    candidates = frozenset(
+        name
+        for name, fact in facts.items()
+        if fact.actual_call and fact.declaration is owner
+    )
+    if target is None:
+        if owner is root:
+            return _targets(None, candidates, label)
+        return candidates
+
+    selected = (target,) if isinstance(target, str) else target
+    if (
+        not isinstance(selected, tuple)
+        or not selected
+        or any(not isinstance(name, str) for name in selected)
+    ):
+        raise TypeError(f"{label}: target_ must be a name or nonempty tuple of names")
+    if len(set(selected)) != len(selected):
+        raise ValueError(f"{label}: duplicate target_")
+
+    by_name = {entry.name: entry for entry in entries}
+    result = set()
+    for public_name in selected:
+        direct = {
+            name
+            for name in candidates
+            if facts[name].public_name == public_name or name == public_name
+        }
+        if direct:
+            result.update(direct)
+            continue
+        aliases = {
+            name
+            for name, fact in facts.items()
+            if fact.declaration is owner
+            and (fact.public_name == public_name or name == public_name)
+        }
+        found = set()
+        for alias in aliases:
+            mount = facts[alias].mount
+            visited = set()
+            stack = [alias]
+            while stack:
+                name = stack.pop()
+                if name in visited or name not in by_name:
+                    continue
+                visited.add(name)
+                if name in candidates and facts[name].mount is mount:
+                    found.add(name)
+                stack.extend(by_name[name].input_types)
+        if not found:
+            raise ValueError(f"{label}: targets not generated: {[public_name]}")
+        result.update(found)
+    return frozenset(result)
+
+
+def _lower_inputs(entry: node.Node) -> Mapping[str, InputSpec]:
+    inputs = {}
+    for name, (typ, dependency_type) in entry.input_types.items():
+        validate_type(typ)
+        default = entry.default_parameter_values.get(name, MISSING)
+        if dependency_type is node.DependencyType.OPTIONAL and default is MISSING:
+            raise ValueError(f"{entry.name}.{name}: transformed optional default unavailable")
+        inputs[name] = InputSpec(typ, default)
+    return MappingProxyType(inputs)
+
+
+def compile_modules(modules, configuration, *, _supported=_SUPPORTED):
     """Resolve declarations once, preserving ownership before config replacement."""
     _check_version()
     if not modules or any(not isinstance(module, ModuleType) for module in modules):
         raise TypeError("Driver requires one or more Python modules")
     functions = dict.fromkeys(fn for module in modules for _, fn in find_functions(module))
     declarations = tuple(fn for fn in functions if not hasattr(fn, "__sdax_shutdown__"))
+    all_declarations = _declaration_closure(declarations, _supported)
     owned: dict[
         FunctionType, list[tuple[FunctionType, str | tuple[str, ...] | None, Policy, Any]]
     ] = {}
@@ -267,78 +335,133 @@ def compile_modules(modules, configuration):
         if not hasattr(release, "__sdax_shutdown__"):
             continue
         owner, target, policy = release.__sdax_shutdown__
-        if owner not in declarations:
+        if owner not in all_declarations:
             raise ValueError(f"{release.__name__}: owner not discovered in supplied modules")
         release_type = _release_type(release)
-        owned.setdefault(owner, []).append((_copy_function(release), target, policy, release_type))
+        owned.setdefault(owner, []).append((release, target, policy, release_type))
     for owner in owned:
         if _excluded(owner):
             raise ValueError(f"{owner.__name__}: excluded declaration cannot own a shutdown")
+    execution_specs = {
+        declaration: declaration.__sdax_execution__
+        for declaration in all_declarations
+        if hasattr(declaration, "__sdax_execution__")
+    }
 
-    resolved, specs = {}, {}
-    for fn in declarations:
-        if _excluded(fn):
-            continue
-        _validate_declaration(fn)
-        expanded = tuple(base.resolve_nodes(_copy_function(fn), dict(configuration)))
-        if not expanded:
-            continue
-        names = {entry.name for entry in expanded}
-        if len(names) != len(expanded):
-            raise ValueError(f"{fn.__name__}: duplicate generated Hamilton node")
-        policy, target = getattr(fn, "__sdax_execution__", (Policy(), None))
-        policy_targets = (
-            _targets(target, names, fn.__name__)
-            if hasattr(fn, "__sdax_execution__")
-            else frozenset()
-        )
-        shutdown_targets = {}
-        for release, target, release_policy, release_type in owned.get(fn, ()):
-            for name in _targets(target, names, release.__name__):
-                if name in shutdown_targets:
-                    raise ValueError(f"{name}: duplicate shutdown declaration")
-                shutdown_targets[name] = (release, release_policy, release_type)
-        for entry in expanded:
-            if entry.name in resolved:
-                raise ValueError(f"Duplicate Hamilton node {entry.name}")
-            if entry.node_role is not node.NodeType.STANDARD:
-                raise ValueError(f"{entry.name}: dynamic Hamilton nodes unsupported")
-            validate_type(entry.type)
-            inputs = {}
-            for name, (typ, dependency_type) in entry.input_types.items():
-                validate_type(typ)
-                default = entry.default_parameter_values.get(name, MISSING)
-                if dependency_type is node.DependencyType.OPTIONAL and default is MISSING:
-                    raise ValueError(
-                        f"{entry.name}.{name}: transformed optional default unavailable"
+    capture = _ProvenanceCapture(owned, _supported)
+    release_specs = {
+        owner: [
+            (capture.clone(release), target, policy, release_type)
+            for release, target, policy, release_type in releases
+        ]
+        for owner, releases in owned.items()
+    }
+
+    resolved = {}
+    captured_facts = {}
+    policies = {}
+    shutdowns = {}
+    try:
+        for fn in declarations:
+            if _excluded(fn):
+                continue
+            expanded = tuple(_resolve_nodes(capture.clone(fn), dict(configuration)))
+            if not expanded:
+                continue
+            facts = {entry.name: capture.fact(entry) for entry in expanded}
+            undiscovered = {
+                fact.declaration
+                for fact in facts.values()
+                if fact.actual_call and fact.declaration not in all_declarations
+            }
+            if undiscovered:
+                names = sorted(
+                    f"{declaration.__module__}.{declaration.__qualname__}"
+                    for declaration in undiscovered
+                )
+                raise ValueError(f"generated declarations were not discovered: {names}")
+            names = {entry.name for entry in expanded}
+            if len(names) != len(expanded):
+                raise ValueError(f"{fn.__name__}: duplicate generated Hamilton node")
+            owners = {
+                fact.declaration
+                for fact in facts.values()
+                if fact.actual_call and fact.declaration in release_specs
+            }
+            for owner in owners:
+                for release, target, release_policy, release_type in release_specs[owner]:
+                    selected = _actual_targets(
+                        target,
+                        owner,
+                        fn,
+                        expanded,
+                        facts,
+                        release.__name__,
                     )
-                inputs[name] = InputSpec(typ, default)
+                    for name in selected:
+                        if name in shutdowns:
+                            raise ValueError(f"{name}: duplicate shutdown declaration")
+                        shutdowns[name] = (release, release_policy, release_type)
+            policy_owners = {
+                fact.declaration
+                for fact in facts.values()
+                if fact.actual_call and fact.declaration in execution_specs
+            }
+            for owner in policy_owners:
+                policy, target = execution_specs[owner]
+                for name in _actual_targets(
+                    target,
+                    owner,
+                    fn,
+                    expanded,
+                    facts,
+                    owner.__name__,
+                ):
+                    if name in policies:
+                        raise ValueError(f"{name}: duplicate execution declaration")
+                    policies[name] = policy
+            for entry in expanded:
+                if entry.name in resolved:
+                    raise ValueError(f"Duplicate Hamilton node {entry.name}")
+                if entry.node_role is not node.NodeType.STANDARD:
+                    raise ValueError(f"{entry.name}: dynamic Hamilton nodes unsupported")
+                validate_type(entry.type)
+                resolved[entry.name] = entry
+                captured_facts[entry.name] = facts[entry.name]
+
+        borrow_from = capture.borrow_from(tuple(resolved.values()), captured_facts)
+        specs = {}
+        for name, entry in resolved.items():
             release, release_policy = None, Policy()
-            if entry.name in shutdown_targets:
-                release, release_policy, release_type = shutdown_targets[entry.name]
+            if name in shutdowns:
+                release, release_policy, release_type = shutdowns[name]
                 if not compatible(entry.type, release_type):
                     raise TypeError(
-                        f"{release.__name__}: shutdown Acquisition type does not accept {entry.name}"
+                        f"{release.__name__}: shutdown Acquisition type does not accept {name}"
                     )
-            specs[entry.name] = NodeSpec(
-                name=entry.name,
+            fact = captured_facts[name]
+            specs[name] = NodeSpec(
+                name=name,
                 fn=entry.callable,
                 output_type=entry.type,
-                inputs=MappingProxyType(inputs),
+                inputs=_lower_inputs(entry),
                 tags=entry.tags,
-                policy=policy if entry.name in policy_targets else Policy(),
+                policy=policies.get(name, Policy()),
                 release=release,
                 release_policy=release_policy,
-                origin=f"{fn.__module__}.{fn.__qualname__}",
-                ownership_required=fn in owned,
+                origin=f"{fact.declaration.__module__}.{fact.declaration.__qualname__}",
+                ownership_required=fact.actual_call and fact.declaration in release_specs,
+                role=fact.role,
+                borrow_from=borrow_from.get(name, frozenset()),
             )
-            resolved[entry.name] = entry
 
-    # Hamilton performs its native edge compatibility checks. The mutable graph
-    # is discarded; original specs preserve config-replaced ownership for Plan.
-    graph.update_dependencies(
-        {name: entry for name, entry in resolved.items() if name not in configuration},
-        LifecycleAdapterSet(),
-        reset_dependencies=False,
-    )
-    return MappingProxyType(specs)
+        # Hamilton performs its native edge compatibility checks. The mutable graph
+        # is discarded; original specs preserve config-replaced ownership for Plan.
+        graph.update_dependencies(
+            {name: entry for name, entry in resolved.items() if name not in configuration},
+            LifecycleAdapterSet(),
+            reset_dependencies=False,
+        )
+        return MappingProxyType(specs)
+    finally:
+        capture.finalize()
