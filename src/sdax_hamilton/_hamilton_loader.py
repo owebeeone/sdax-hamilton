@@ -8,16 +8,20 @@ the process-wide Hamilton registry.
 """
 
 from collections.abc import Iterable
-from types import GenericAlias
+from copy import copy
+from types import GenericAlias, MethodType
 from typing import Any
 
 from hamilton import node
+from hamilton.function_modifiers.adapters import LoadFromDecorator
+from hamilton.function_modifiers.dependencies import LiteralDependency, UpstreamDependency
 
 _DATA_LOADER_TAG = "hamilton.data_loader"
 _HAS_METADATA_TAG = "hamilton.data_loader.has_metadata"
 _LOADER_NODE_TAG = "hamilton.data_loader.node"
 _LOADER_CLASS_TAG = "hamilton.data_loader.classname"
 _METADATA_TYPE = dict[str, Any]
+_INSTALL_MARKER = object()
 
 
 def _tuple_type(first: Any, second: Any) -> Any:
@@ -85,3 +89,42 @@ def correct_load_from_annotations(
         replacements[id(projection)] = projection.copy_with(input_types=corrected_inputs)
 
     return tuple(replacements.get(id(entry), entry) for entry in original)
+
+
+def install_load_from_correction(modifier: LoadFromDecorator) -> LoadFromDecorator:
+    """Install the correction on one already-copied exact Hamilton modifier.
+
+    This is the compiler seam for Hamilton 1.90.0 only. The caller owns the
+    enclosing version gate and must pass a copied, already-admitted exact
+    ``LoadFromDecorator``. The wrapper delegates to the captured original bound
+    method once, corrects only its returned raw/projection pair, and never scans
+    unrelated resolved nodes or changes Hamilton's registry.
+    """
+    if type(modifier) is not LoadFromDecorator:
+        raise TypeError("LoadFrom correction requires an exact LoadFromDecorator copy")
+    if getattr(modifier, "__sdax_load_from_correction__", None) is _INSTALL_MARKER:
+        return modifier
+
+    modifier.loader_classes = tuple(modifier.loader_classes)
+    modifier.kwargs = {
+        name: copy(value) if type(value) in (LiteralDependency, UpstreamDependency) else value
+        for name, value in modifier.kwargs.items()
+    }
+    original_get_loader_nodes = modifier.get_loader_nodes
+
+    def corrected_get_loader_nodes(
+        _self: LoadFromDecorator,
+        inject_parameter: str,
+        load_type: type[type],
+        namespace: str | None = None,
+    ) -> list[node.Node]:
+        return list(
+            correct_load_from_annotations(
+                original_get_loader_nodes(inject_parameter, load_type, namespace),
+                load_from_admitted=True,
+            )
+        )
+
+    setattr(modifier, "get_loader_nodes", MethodType(corrected_get_loader_nodes, modifier))
+    setattr(modifier, "__sdax_load_from_correction__", _INSTALL_MARKER)
+    return modifier
