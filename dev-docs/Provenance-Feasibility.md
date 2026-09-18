@@ -176,6 +176,24 @@ This gate does not complete broad P2, P3, P4, D0, D1, D2 or E. Integration still
 needs per-family qualification and public admission, nested/shared mount cases,
 selection/config/override protection, validation diagnostics policy, metadata
 snapshots, broader decorator families and the full lifecycle composition suite.
+Selected pipeline helpers must currently be declarations discovered from a
+supplied module or an already-recognized recursive declaration source. If a
+delayed resolver returns a pipeline that calls a function from another module
+which was not supplied, compilation rejects the undiscovered actual call after
+the resolver's single construction callback and before graph effects. This is an
+interim fail-closed restriction, not evidence of full delayed/pipeline coverage.
+A later bounded discovery step may consult the already-loaded defining module of
+that explicitly referenced function to find its local shutdown declaration; it
+must not import modules or crawl unrelated declarations.
+Pipeline step callables and `does` replacements are limited to exact Python
+functions in this bounded slice. Callable instances are rejected before expansion
+because preserving their mutable state and SDAX policy provenance needs a separate
+reentrancy and snapshot qualification; silently attributing such a call to its
+wrapper would bypass the instance's execution policy.
+For an exact-function `does` replacement, the replaced declaration remains the
+logical owner of the generated call; policy attached to the replacement helper is
+not inherited. Exact-function pipeline steps remain distinct graph calls and keep
+their own discovered SDAX policy and shutdown facts.
 The fixture covers one level and two mounts of one declared composition.
 Before validation is publicly activated, shutdown's public declaration target must
 be remapped to the captured actual raw call. The bounded fixture proves the default
@@ -189,11 +207,11 @@ Local verification:
 ```text
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src <qualification-python> -m pytest \
   -p no:cacheprovider tests/test_provenance_feasibility.py -q
-6 passed in 0.57s
+11 passed in 0.66s
 
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src <qualification-ruff> \
   check tests/test_provenance_feasibility.py
 All checks passed!
 ```
 
-The complete merged local source suite also passes: `252 passed in 3.46s`.
+The complete local source suite also passes: `288 passed in 1.97s`.

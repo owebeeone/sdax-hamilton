@@ -15,6 +15,8 @@ from hamilton.data_quality import base as data_quality
 from hamilton.function_modifiers import base, parameterized_subdag
 from hamilton.function_modifiers.delayed import resolve_from_config
 from hamilton.function_modifiers.expanders import extract_fields
+from hamilton.function_modifiers.macros import does, pipe_output
+from hamilton.function_modifiers.validation import check_output_custom
 
 from sdax_hamilton import Acquisition, Driver, hamilton_compat, shutdown
 from sdax_hamilton._model import GeneratedRole
@@ -158,6 +160,7 @@ def _compile_with_capture_observer(monkeypatch, mounted, configuration):
             extract_fields,
             parameterized_subdag,
             resolve_from_config,
+            check_output_custom,
         ),
     )
     return specs, capture_refs
@@ -247,6 +250,7 @@ def outer(low: int) -> int:
             extract_fields,
             parameterized_subdag,
             resolve_from_config,
+            check_output_custom,
         ),
     )
 
@@ -300,7 +304,11 @@ def result(value: int) -> int:
             hamilton_compat.compile_modules(
                 (module,),
                 {settings.ENABLE_POWER_USER_MODE: True},
-                _supported=(*hamilton_compat._SUPPORTED, resolve_from_config),
+                _supported=(
+                    *hamilton_compat._SUPPORTED,
+                    resolve_from_config,
+                    check_output_custom,
+                ),
             )
         assert type(result.value) is Sentinel
         assert id(result.value) == calls[0]
@@ -484,3 +492,221 @@ async def test_validation_failure_releases_each_actual_mount_once(module_factory
     )
     gc.collect()
     assert capture_refs[0]() is None
+
+
+@pytest.mark.asyncio
+async def test_delayed_pipeline_retains_selected_helper_policy_and_shutdown_once(module_factory):
+    events: list[tuple[str, int]] = []
+    resolver_calls: list[str] = []
+    module = module_factory(
+        """
+from hamilton.function_modifiers import hamilton_exclude, pipe_output, resolve_from_config, step
+from sdax_hamilton import Acquisition, execution, shutdown
+
+@execution(timeout=1)
+def add(value: int) -> int:
+    events.append(("add", value))
+    return value + 1
+
+@shutdown(of=add)
+def close_add(state: Acquisition[int]) -> None:
+    events.append(("close", state.value))
+
+@hamilton_exclude
+def decorate_with():
+    resolver_calls.append("resolve")
+    return pipe_output(step(add))
+
+@resolve_from_config(decorate_with=decorate_with)
+def result(value: int) -> int:
+    return value
+""",
+        events=events,
+        resolver_calls=resolver_calls,
+    )
+    specs = hamilton_compat.compile_modules(
+        (module,),
+        {settings.ENABLE_POWER_USER_MODE: True},
+        _supported=(*hamilton_compat._SUPPORTED, resolve_from_config, pipe_output),
+    )
+
+    generated = specs["result.with_add"]
+    assert resolver_calls == ["resolve"]
+    assert generated.origin.endswith(".add")
+    assert generated.policy.timeout == 1
+    assert generated.ownership_required
+    assert generated.release is not None
+    async with PreparedPlan(specs, ["result"]).open(inputs={"value": 4}) as result:
+        assert result == {"result": 5}
+        assert events == [("add", 4)]
+    assert events == [("add", 4), ("close", 5)]
+    assert resolver_calls == ["resolve"]
+
+
+def test_delayed_pipeline_rejects_undiscovered_external_helper_before_effects(
+    module_factory, caplog
+):
+    events: list[str] = []
+    resolver_calls: list[str] = []
+    component = module_factory(
+        """
+from sdax_hamilton import Acquisition, shutdown
+
+def helper(value: int) -> int:
+    events.append("helper")
+    return value + 1
+
+@shutdown(of=helper)
+def close_helper(state: Acquisition[int]) -> None:
+    events.append("close")
+""",
+        events=events,
+    )
+    root = module_factory(
+        """
+from hamilton.function_modifiers import hamilton_exclude, pipe_output, resolve_from_config, step
+
+@hamilton_exclude
+def decorate_with():
+    resolver_calls.append("resolve")
+    return pipe_output(step(helper))
+
+@resolve_from_config(decorate_with=decorate_with)
+def result(value: int) -> int:
+    return value
+""",
+        helper=component.helper,
+        resolver_calls=resolver_calls,
+    )
+
+    with pytest.raises(ValueError, match="generated declarations were not discovered.*helper"):
+        hamilton_compat.compile_modules(
+            (root,),
+            {settings.ENABLE_POWER_USER_MODE: True},
+            _supported=(*hamilton_compat._SUPPORTED, resolve_from_config, pipe_output),
+        )
+
+    assert resolver_calls == ["resolve"]
+    assert events == []
+    assert not [
+        record
+        for record in caplog.records
+        if record.name == "hamilton.function_modifiers.base"
+    ]
+
+
+def test_static_pipeline_rejects_callable_instance_before_effects(module_factory):
+    events: list[int] = []
+    module = module_factory(
+        """
+from hamilton.function_modifiers import pipe_output, step
+from sdax_hamilton import execution
+
+class Helper:
+    __name__ = "helper"
+    __annotations__ = {"value": int, "return": int}
+
+    def __call__(self, value: int) -> int:
+        events.append(value)
+        return value + 1
+
+helper = execution(timeout=7)(Helper())
+
+@pipe_output(step(helper))
+def result(value: int) -> int:
+    return value
+""",
+        events=events,
+    )
+
+    with pytest.raises(ValueError, match="pipeline steps require plain functions"):
+        hamilton_compat.compile_modules(
+            (module,),
+            {},
+            _supported=(*hamilton_compat._SUPPORTED, pipe_output),
+        )
+
+    assert events == []
+
+
+def test_delayed_pipeline_rejects_callable_instance_after_one_resolver_call(module_factory):
+    events: list[int] = []
+    resolver_calls: list[str] = []
+    module = module_factory(
+        """
+from hamilton.function_modifiers import hamilton_exclude, pipe_output, resolve_from_config, step
+from sdax_hamilton import execution
+
+class Helper:
+    __name__ = "helper"
+    __annotations__ = {"value": int, "return": int}
+
+    def __call__(self, value: int) -> int:
+        events.append(value)
+        return value + 1
+
+helper = execution(timeout=7)(Helper())
+
+@hamilton_exclude
+def decorate_with():
+    resolver_calls.append("resolve")
+    return pipe_output(step(helper))
+
+@resolve_from_config(decorate_with=decorate_with)
+def result(value: int) -> int:
+    return value
+""",
+        events=events,
+        resolver_calls=resolver_calls,
+    )
+
+    with pytest.raises(ValueError, match="pipeline steps require plain functions"):
+        hamilton_compat.compile_modules(
+            (module,),
+            {settings.ENABLE_POWER_USER_MODE: True},
+            _supported=(*hamilton_compat._SUPPORTED, resolve_from_config, pipe_output),
+        )
+
+    assert resolver_calls == ["resolve"]
+    assert events == []
+
+
+def test_delayed_does_rejects_callable_instance_after_one_resolver_call(module_factory):
+    events: list[int] = []
+    resolver_calls: list[str] = []
+    module = module_factory(
+        """
+from hamilton.function_modifiers import does, hamilton_exclude, resolve_from_config
+
+class Replacement:
+    __name__ = "replacement"
+    __annotations__ = {"value": int, "return": int}
+
+    def __call__(self, value: int) -> int:
+        events.append(value)
+        return value + 1
+
+replacement = Replacement()
+
+@hamilton_exclude
+def decorate_with():
+    resolver_calls.append("resolve")
+    return does(replacement)
+
+@resolve_from_config(decorate_with=decorate_with)
+def result(value: int) -> int:
+    pass
+""",
+        events=events,
+        resolver_calls=resolver_calls,
+    )
+
+    with pytest.raises(ValueError, match="does replacements require plain functions"):
+        hamilton_compat.compile_modules(
+            (module,),
+            {settings.ENABLE_POWER_USER_MODE: True},
+            _supported=(*hamilton_compat._SUPPORTED, resolve_from_config, does),
+        )
+
+    assert resolver_calls == ["resolve"]
+    assert events == []

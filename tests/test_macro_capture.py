@@ -225,6 +225,28 @@ def changed(value: int, offset: int = 9) -> int:
     assert set(piped_nodes) == {"piped", "piped.with_increment"}
 
 
+def test_does_rejects_callable_instance_replacement_before_expansion(module_factory):
+    module = module_factory(
+        """
+from hamilton.function_modifiers import does
+
+class Replacement:
+    __name__ = "replacement"
+    __annotations__ = {"value": int, "return": int}
+
+    def __call__(self, value: int) -> int:
+        return value + 1
+
+@does(Replacement())
+def result(value: int) -> int:
+    pass
+"""
+    )
+
+    with pytest.raises(ValueError, match="does replacements require plain functions"):
+        _snapshot(module.result)
+
+
 def test_mutate_is_captured_from_the_target_pipeline_and_remains_excluded(module_factory):
     module = module_factory("""
 from hamilton.function_modifiers import mutate, step, value
