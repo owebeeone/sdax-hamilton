@@ -14,7 +14,12 @@ from typing import Any, get_type_hints
 
 from hamilton import node
 from hamilton.function_modifiers import base, parameterized_subdag
-from hamilton.function_modifiers.adapters import LoadFromDecorator
+from hamilton.function_modifiers.adapters import (
+    LoadFromDecorator,
+    SaveToDecorator,
+    dataloader,
+    datasaver,
+)
 from hamilton.function_modifiers.delayed import resolve, resolve_from_config
 from hamilton.function_modifiers.expanders import (
     extract_columns,
@@ -44,7 +49,7 @@ from ._hamilton_bindings import (
     capture_bindings,
     snapshot_binding_containers,
 )
-from ._hamilton_loader import install_load_from_correction
+from ._hamilton_loader import install_load_from_correction, install_save_to_preflight
 from ._hamilton_pipeline import (
     correct_copied_async_output_pipeline,
     correct_copied_async_output_pipelines,
@@ -81,6 +86,7 @@ class _CapturedFact:
     input_contracts: Mapping[str, InputSpec] = field(
         default_factory=lambda: MappingProxyType({})
     )
+    policy_target: bool = False
 
 
 class _ProvenanceCapture:
@@ -113,6 +119,7 @@ class _ProvenanceCapture:
         declaration: Callable[..., Any],
         *,
         actual_call: bool,
+        policy_target: bool = False,
         borrows: bool | None = None,
         public_name: str | None = None,
         input_contracts: Mapping[str, InputSpec] | None = None,
@@ -131,6 +138,7 @@ class _ProvenanceCapture:
                 role=role,
                 declaration=declaration,
                 actual_call=actual_call,
+                policy_target=policy_target,
                 borrows=(
                     role
                     in (
@@ -294,6 +302,7 @@ class _ProvenanceCapture:
                     incoming.role,
                     incoming.declaration,
                     actual_call=incoming.actual_call,
+                    policy_target=incoming.policy_target,
                     borrows=incoming.borrows,
                     public_name=generated_entry.name,
                     input_contracts=captured,
@@ -335,6 +344,7 @@ class _ProvenanceCapture:
                 incoming.role,
                 incoming.declaration,
                 actual_call=incoming.actual_call,
+                policy_target=incoming.policy_target,
                 borrows=incoming.borrows,
                 public_name=incoming.public_name,
                 input_contracts=incoming.input_contracts,
@@ -371,6 +381,7 @@ class _ProvenanceCapture:
         ) -> list[node.Node]:
             incoming = self._fact_from_callable(entry)
             actual_call = True if incoming is None else incoming.actual_call
+            policy_target = False if incoming is None else incoming.policy_target
             public_name = entry.name if incoming is None else incoming.public_name
             captured_declaration = declaration if incoming is None else incoming.declaration
             generated = list(
@@ -398,11 +409,170 @@ class _ProvenanceCapture:
                 GeneratedRole.VALIDATION_RAW,
                 captured_declaration,
                 actual_call=actual_call,
+                policy_target=policy_target,
                 public_name=public_name,
                 input_contracts=(
                     MappingProxyType({}) if incoming is None else incoming.input_contracts
                 ),
             )
+            return generated
+
+        self._install_method(
+            modifier,
+            "transform_node",
+            MethodType(transform_with_capture, modifier),
+        )
+
+    def _loader_pair(
+        self,
+        generated: Collection[node.Node],
+        *,
+        label: str,
+    ) -> tuple[node.Node, node.Node]:
+        """Return the exact generated raw/projection pair from a pinned loader."""
+        raw = [
+            entry
+            for entry in generated
+            if entry.tags.get("hamilton.data_loader") is True
+            and entry.tags.get("hamilton.data_loader.has_metadata") is True
+        ]
+        projection = [
+            entry
+            for entry in generated
+            if entry.tags.get("hamilton.data_loader") is True
+            and entry.tags.get("hamilton.data_loader.has_metadata") is False
+        ]
+        if len(raw) != 1 or len(projection) != 1 or len(generated) != 2:
+            raise AssertionError(f"Hamilton {label} expansion changed loader pair shape")
+        raw_entry, projection_entry = raw[0], projection[0]
+        if raw_entry.name not in projection_entry.input_types:
+            raise AssertionError(f"Hamilton {label} projection no longer consumes its raw node")
+        return raw_entry, projection_entry
+
+    def _instrument_load_from(
+        self, modifier: LoadFromDecorator, declaration: Callable[..., Any]
+    ) -> None:
+        inject_nodes = modifier.inject_nodes
+
+        def inject_with_capture(
+            instance: LoadFromDecorator,
+            params: dict[str, type[type]],
+            configuration: dict[str, Any],
+            fn: Callable[..., Any],
+        ) -> tuple[Collection[node.Node], dict[str, str]]:
+            generated, renames = inject_nodes(params, configuration, fn)
+            raw, projection = self._loader_pair(generated, label="load_from")
+            self._remember(
+                raw,
+                GeneratedRole.VALUE,
+                declaration,
+                actual_call=False,
+                policy_target=True,
+            )
+            self._remember(
+                projection,
+                GeneratedRole.PROJECTION,
+                declaration,
+                actual_call=False,
+            )
+            return generated, renames
+
+        self._install_method(
+            modifier,
+            "inject_nodes",
+            MethodType(inject_with_capture, modifier),
+        )
+
+    def _instrument_dataloader(self, modifier: dataloader, declaration: Callable[..., Any]) -> None:
+        generate_nodes = modifier.generate_nodes
+
+        def generate_with_capture(
+            instance: dataloader,
+            fn: Callable[..., Any],
+            configuration: dict[str, Any],
+        ) -> list[node.Node]:
+            generated = list(generate_nodes(fn, configuration))
+            raw, projection = self._loader_pair(generated, label="dataloader")
+            self._remember(
+                raw,
+                GeneratedRole.VALUE,
+                declaration,
+                actual_call=True,
+                public_name=projection.name,
+            )
+            self._remember(
+                projection,
+                GeneratedRole.PROJECTION,
+                declaration,
+                actual_call=False,
+            )
+            return generated
+
+        self._install_method(
+            modifier,
+            "generate_nodes",
+            MethodType(generate_with_capture, modifier),
+        )
+
+    def _instrument_datasaver(self, modifier: datasaver, declaration: Callable[..., Any]) -> None:
+        generate_nodes = modifier.generate_nodes
+
+        def generate_with_capture(
+            instance: datasaver,
+            fn: Callable[..., Any],
+            configuration: dict[str, Any],
+        ) -> list[node.Node]:
+            generated = list(generate_nodes(fn, configuration))
+            if len(generated) != 1 or generated[0].tags.get("hamilton.data_saver") is not True:
+                raise AssertionError("Hamilton datasaver expansion changed node shape")
+            self._remember(generated[0], GeneratedRole.VALUE, declaration, actual_call=True)
+            return generated
+
+        self._install_method(
+            modifier,
+            "generate_nodes",
+            MethodType(generate_with_capture, modifier),
+        )
+
+    def _instrument_save_to(
+        self, modifier: SaveToDecorator, declaration: Callable[..., Any]
+    ) -> None:
+        transform = modifier.transform_node
+
+        def transform_with_capture(
+            instance: SaveToDecorator,
+            entry: node.Node,
+            configuration: dict[str, Any],
+            fn: Callable[..., Any],
+        ) -> list[node.Node]:
+            incoming = self._fact_from_callable(entry)
+            if incoming is None:
+                incoming = _CapturedFact(
+                    GeneratedRole.VALUE,
+                    declaration,
+                    True,
+                    False,
+                    entry.name,
+                    self._mount()[0],
+                )
+            generated = list(transform(entry, configuration, fn))
+            if (
+                len(generated) != 2
+                or generated[0].tags.get("hamilton.data_saver") is not True
+            ):
+                raise AssertionError("Hamilton save_to expansion changed node shape")
+            self._remember(
+                generated[0],
+                GeneratedRole.VALUE,
+                declaration,
+                actual_call=False,
+                # SaveTo yields fresh effect metadata. Its normal data input
+                # keeps a producer live while saving; the metadata is not an
+                # alias of that producer after the callback returns.
+                policy_target=True,
+                borrows=False,
+            )
+            self._handoff(generated[1], incoming.mount, incoming, before=entry)
             return generated
 
         self._install_method(
@@ -564,6 +734,7 @@ class _ProvenanceCapture:
                 GeneratedRole.VALUE,
                 incoming.declaration,
                 actual_call=incoming.actual_call,
+                policy_target=incoming.policy_target,
                 borrows=incoming.borrows,
                 public_name=incoming.public_name,
                 input_contracts=incoming.input_contracts,
@@ -753,6 +924,14 @@ class _ProvenanceCapture:
             self._instrument_pipe_output(snapshot, declaration)
         elif type(snapshot) is LoadFromDecorator:
             install_load_from_correction(snapshot)
+            self._instrument_load_from(snapshot, declaration)
+        elif type(snapshot) is SaveToDecorator:
+            install_save_to_preflight(snapshot)
+            self._instrument_save_to(snapshot, declaration)
+        elif type(snapshot) is dataloader:
+            self._instrument_dataloader(snapshot, declaration)
+        elif type(snapshot) is datasaver:
+            self._instrument_datasaver(snapshot, declaration)
         elif type(snapshot) in (model, dynamic_transform):
             self._install_method(
                 snapshot,

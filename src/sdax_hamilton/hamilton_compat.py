@@ -213,11 +213,21 @@ def _targets(target, names, label):
     return frozenset(selected)
 
 
-def _actual_targets(target, owner, root, entries, facts, label):
+def _declaration_targets(
+    target,
+    owner,
+    root,
+    entries,
+    facts,
+    label,
+    *,
+    include_policy_targets: bool,
+):
     candidates = frozenset(
         name
         for name, fact in facts.items()
-        if fact.actual_call and fact.declaration is owner
+        if fact.declaration is owner
+        and (fact.actual_call or (include_policy_targets and fact.policy_target))
     )
     if target is None:
         if owner is root:
@@ -249,6 +259,7 @@ def _actual_targets(target, owner, root, entries, facts, label):
             name
             for name, fact in facts.items()
             if fact.declaration is owner
+            and fact.borrows
             and (fact.public_name == public_name or name == public_name)
         }
         found = set()
@@ -268,6 +279,32 @@ def _actual_targets(target, owner, root, entries, facts, label):
             raise ValueError(f"{label}: targets not generated: {[public_name]}")
         result.update(found)
     return frozenset(result)
+
+
+def _actual_targets(target, owner, root, entries, facts, label):
+    """Select only executable declaration calls for shutdown/default policy."""
+    return _declaration_targets(
+        target,
+        owner,
+        root,
+        entries,
+        facts,
+        label,
+        include_policy_targets=False,
+    )
+
+
+def _policy_targets(target, owner, root, entries, facts, label):
+    """Allow an explicit policy to name an admitted synthetic adapter node."""
+    return _declaration_targets(
+        target,
+        owner,
+        root,
+        entries,
+        facts,
+        label,
+        include_policy_targets=True,
+    )
 
 
 def _lower_inputs(
@@ -394,11 +431,13 @@ def compile_modules(modules, configuration, *, _supported=_SUPPORTED):
             policy_owners = {
                 fact.declaration
                 for fact in facts.values()
-                if fact.actual_call and fact.declaration in execution_specs
+                if (fact.actual_call or fact.policy_target)
+                and fact.declaration in execution_specs
             }
             for owner in policy_owners:
                 policy, target = execution_specs[owner]
-                for name in _actual_targets(
+                target_selector = _actual_targets if target is None else _policy_targets
+                for name in target_selector(
                     target,
                     owner,
                     fn,
