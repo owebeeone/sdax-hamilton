@@ -7,11 +7,12 @@ import logging
 import weakref
 from collections import Counter
 from collections.abc import Callable
+from types import MappingProxyType
 from typing import Any, get_type_hints
 
 import pytest
 from hamilton import driver as hamilton_driver
-from hamilton import settings
+from hamilton import node, settings
 from hamilton.data_quality import base as data_quality
 from hamilton.function_modifiers import base, parameterized_subdag
 from hamilton.function_modifiers.delayed import resolve_from_config
@@ -20,7 +21,8 @@ from hamilton.function_modifiers.macros import does, pipe_output
 from hamilton.function_modifiers.validation import check_output_custom
 
 from sdax_hamilton import Acquisition, Driver, hamilton_compat, shutdown
-from sdax_hamilton._model import GeneratedRole
+from sdax_hamilton._hamilton_provenance import _CapturedFact, _ProvenanceCapture
+from sdax_hamilton._model import GeneratedRole, InputSpec
 from sdax_hamilton.plan import PreparedPlan
 
 
@@ -165,6 +167,63 @@ def _compile_with_capture_observer(monkeypatch, mounted, configuration):
         ),
     )
     return specs, capture_refs
+
+
+def test_input_contract_namespace_handoff_preserves_exact_edge_order():
+    def call(**kwargs):
+        return kwargs
+
+    required = node.DependencyType.REQUIRED
+    before = node.Node(
+        "value",
+        int,
+        callabl=call,
+        input_types={"number": (int, required), "label": (str, required)},
+    )
+    after = node.Node(
+        "mounted.value",
+        int,
+        callabl=call,
+        input_types={
+            "mounted.number": (int, required),
+            "mounted.label": (str, required),
+        },
+    )
+    mount = object()
+    fact = _CapturedFact(
+        GeneratedRole.VALUE,
+        call,
+        True,
+        False,
+        "value",
+        object(),
+        MappingProxyType(
+            {
+                "number": InputSpec(int, requirements=(int,)),
+                "label": InputSpec(str, requirements=(str,)),
+            }
+        ),
+    )
+    capture = _ProvenanceCapture((), ())
+    capture._handoff(after, mount, fact, before=before)
+    capture._mounts.append((mount, ("mounted",)))
+
+    remapped = capture.fact(after).input_contracts
+    assert tuple(remapped) == ("mounted.number", "mounted.label")
+    assert remapped["mounted.number"].effective_requirements == (int,)
+    assert remapped["mounted.label"].effective_requirements == (str,)
+
+    reordered = node.Node(
+        "mounted.value",
+        int,
+        callabl=call,
+        input_types={
+            "mounted.label": (str, required),
+            "mounted.number": (int, required),
+        },
+    )
+    with pytest.raises(AssertionError, match="reordered captured inputs"):
+        capture._handoff(reordered, mount, fact, before=before)
 
 
 @pytest.mark.asyncio
