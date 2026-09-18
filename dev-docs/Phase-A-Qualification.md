@@ -19,9 +19,9 @@ execution, or Ray execution.
   exclusion cannot erase an ownership obligation.
 - Exact `tag`, `tag_outputs`, `schema.output`, `cache`, and
   `ray_remote_options` classes are lowered from Hamilton's resolved node tags.
-  `NodeSpec.tags` is a frozen copy of that finite tag mapping. Hamilton's known
-  list-valued tag containers are copied too; their elements and other tag values
-  retain their application identities.
+  `NodeSpec.tags` is an isolated snapshot of that finite tag mapping. Hamilton's
+  known list-valued tag containers are copied too, but are not recursively frozen;
+  their elements and other tag values retain their application identities.
 
 Cache and Ray tags remain data only. They neither enable caching nor import,
 connect to, or submit work to Ray. Their runtime profiles remain K0/K/QK and

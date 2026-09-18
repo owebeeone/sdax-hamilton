@@ -13,6 +13,14 @@ from .declarations import Policy
 class InputSpec:
     typ: Any
     default: object = MISSING
+    requirements: tuple[Any, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "requirements", tuple(self.requirements))
+
+    @property
+    def effective_requirements(self) -> tuple[Any, ...]:
+        return self.requirements or (self.typ,)
 
 
 @dataclass(frozen=True, slots=True)
