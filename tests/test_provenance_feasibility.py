@@ -1,32 +1,22 @@
-"""Feasibility proof for provenance capture through Hamilton's real compiler path.
+"""Bounded proof that production compilation preserves generated-node provenance."""
 
-This is deliberately a test-local probe.  It establishes the interception seam
-needed by the later NodeSpec work without admitting the decorators exercised here.
-"""
-
+import gc
 import inspect
+import weakref
 from collections import Counter
-from collections.abc import Callable, Mapping
-from copy import copy
-from dataclasses import dataclass
-from enum import Enum
-from types import FunctionType, MethodType
+from collections.abc import Callable
 from typing import Any, get_type_hints
 
 import pytest
 from hamilton import driver as hamilton_driver
-from hamilton import node, settings
+from hamilton import settings
 from hamilton.data_quality import base as data_quality
 from hamilton.function_modifiers import base, parameterized_subdag
+from hamilton.function_modifiers.delayed import resolve_from_config
 from hamilton.function_modifiers.expanders import extract_fields
-from hamilton.function_modifiers.recursive import subdag
-from hamilton.function_modifiers.validation import (
-    BaseDataValidationDecorator,
-    check_output_custom,
-)
 
-from sdax_hamilton import Acquisition, Driver, shutdown
-from sdax_hamilton._model import MISSING, InputSpec, NodeSpec
+from sdax_hamilton import Acquisition, Driver, hamilton_compat, shutdown
+from sdax_hamilton._model import GeneratedRole
 from sdax_hamilton.plan import PreparedPlan
 
 
@@ -60,296 +50,7 @@ class MinimumValidator(data_quality.DataValidator):
         )
 
 
-class Role(Enum):
-    ACQUISITION = "acquisition"
-    PROJECTION_SOURCE = "projection-source"
-    PROJECTION = "projection"
-    VALIDATION_RAW = "validation-raw"
-    VALIDATOR = "validator"
-    VALIDATION_GATE = "validation-gate"
-    ORDINARY = "ordinary"
-
-
-@dataclass(frozen=True)
-class Mount:
-    declaration: Callable[..., Any]
-    path: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class Provenance:
-    role: Role
-    declaration: Callable[..., Any]
-    mount: Mount
-
-
-@dataclass(frozen=True)
-class Resolution:
-    mount: Mount
-    resolver: object
-    resolved_type: type
-
-
-class _ProjectionProbe(base.NodeTransformer):
-    """Delegate one extraction transform and label its returned objects directly."""
-
-    def __init__(
-        self,
-        inner: extract_fields,
-        capture: "CaptureCompiler",
-        declaration: Callable[..., Any],
-    ) -> None:
-        super().__init__(inner.target)
-        self.inner = inner
-        self.capture = capture
-        self.declaration = declaration
-
-    def transform_node(
-        self, node_: node.Node, config: dict[str, Any], fn: Callable[..., Any]
-    ) -> list[node.Node]:
-        generated = list(self.inner.transform_node(node_, config, fn))
-        self.capture.note(generated[0], Role.PROJECTION_SOURCE, self.declaration)
-        for projection in generated[1:]:
-            self.capture.note(projection, Role.PROJECTION, self.declaration)
-        return generated
-
-    def validate(self, fn: Callable[..., Any]) -> None:
-        self.inner.validate(fn)
-
-    def required_config(self) -> list[str] | None:
-        return self.inner.required_config()
-
-    def optional_config(self) -> dict[str, Any] | None:
-        return self.inner.optional_config()
-
-
-class _ValidationProbe(base.NodeTransformer):
-    """Delegate one validation transform and label its returned objects directly."""
-
-    def __init__(
-        self,
-        inner: BaseDataValidationDecorator,
-        capture: "CaptureCompiler",
-        declaration: Callable[..., Any],
-    ) -> None:
-        super().__init__(inner.target)
-        self.inner = inner
-        self.capture = capture
-        self.declaration = declaration
-
-    def transform_node(
-        self, node_: node.Node, config: dict[str, Any], fn: Callable[..., Any]
-    ) -> list[node.Node]:
-        generated = list(self.inner.transform_node(node_, config, fn))
-        for validator in generated[:-2]:
-            self.capture.note(validator, Role.VALIDATOR, self.declaration)
-        self.capture.note(generated[-2], Role.VALIDATION_GATE, self.declaration)
-        self.capture.note(generated[-1], Role.VALIDATION_RAW, self.declaration)
-        return generated
-
-    def validate(self, fn: Callable[..., Any]) -> None:
-        self.inner.validate(fn)
-
-    def required_config(self) -> list[str] | None:
-        return self.inner.required_config()
-
-    def optional_config(self) -> dict[str, Any] | None:
-        return self.inner.optional_config()
-
-
-class _DelayedProbe(base.DynamicResolver):
-    """Call one copied resolver once and wrap only the modifier it returned."""
-
-    def __init__(
-        self,
-        inner: base.DynamicResolver,
-        capture: "CaptureCompiler",
-        declaration: Callable[..., Any],
-    ) -> None:
-        self.inner = inner
-        self.capture = capture
-        self.declaration = declaration
-
-    def resolve(
-        self, config: dict[str, Any], fn: Callable[..., Any]
-    ) -> base.NodeTransformLifecycle:
-        resolved = self.inner.resolve(config, fn)
-        mount = self.capture.current_mount()
-        self.capture.resolutions.append(Resolution(mount, self.inner, type(resolved)))
-        if isinstance(resolved, BaseDataValidationDecorator):
-            return _ValidationProbe(resolved, self.capture, self.declaration)
-        raise AssertionError(f"Feasibility fixture returned {type(resolved)!r}")
-
-    def validate(self, fn: Callable[..., Any]) -> None:
-        self.inner.validate(fn)
-
-    def required_config(self) -> list[str] | None:
-        return self.inner.required_config()
-
-    def optional_config(self) -> dict[str, Any] | None:
-        return self.inner.optional_config()
-
-
-class CaptureCompiler:
-    """A bounded, disposable probe over copied declaration/modifier instances."""
-
-    _LIFECYCLES = (
-        base.NodeResolver,
-        base.NodeCreator,
-        base.NodeExpander,
-        base.NodeTransformer,
-        base.NodeInjector,
-        base.NodeDecorator,
-        base.DynamicResolver,
-    )
-
-    def __init__(self, releases: Mapping[Callable[..., Any], Callable[..., Any]]) -> None:
-        self.releases = dict(releases)
-        self._clones: dict[Callable[..., Any], Callable[..., Any]] = {}
-        self._originals: dict[Callable[..., Any], Callable[..., Any]] = {}
-        self._mounts: list[Mount] = []
-        self._pending: dict[int, Provenance] = {}
-        self.provenance: dict[str, Provenance] = {}
-        self.resolutions: list[Resolution] = []
-
-    def current_mount(self) -> Mount:
-        if not self._mounts:
-            raise AssertionError("Provenance event occurred outside a mounted subdag")
-        return self._mounts[-1]
-
-    def note(
-        self, generated: node.Node, role: Role, declaration: Callable[..., Any]
-    ) -> None:
-        self._pending[id(generated.callable)] = Provenance(
-            role,
-            declaration,
-            self.current_mount(),
-        )
-
-    def _modifier(
-        self, modifier: base.NodeTransformLifecycle, declaration: Callable[..., Any]
-    ) -> base.NodeTransformLifecycle:
-        snapshot = copy(modifier)
-        if isinstance(snapshot, parameterized_subdag):
-            snapshot.load_from = tuple(self.clone(fn) for fn in snapshot.load_from)
-            self._instrument_mounts(snapshot, declaration)
-            return snapshot
-        if isinstance(snapshot, extract_fields):
-            return _ProjectionProbe(snapshot, self, declaration)
-        if isinstance(snapshot, base.DynamicResolver):
-            return _DelayedProbe(snapshot, self, declaration)
-        return snapshot
-
-    def clone(self, fn: Callable[..., Any]) -> Callable[..., Any]:
-        if fn in self._clones:
-            return self._clones[fn]
-        clone = FunctionType(fn.__code__, fn.__globals__, fn.__name__, fn.__defaults__, fn.__closure__)
-        self._clones[fn] = clone
-        self._originals[clone] = fn
-        clone.__kwdefaults__ = dict(fn.__kwdefaults__ or {})
-        clone.__annotations__ = dict(fn.__annotations__)
-        clone.__dict__.update(fn.__dict__)
-        for stage in self._LIFECYCLES:
-            key = stage.get_lifecycle_name()
-            if hasattr(fn, key):
-                setattr(clone, key, [self._modifier(item, fn) for item in getattr(fn, key)])
-        clone.__module__ = fn.__module__
-        clone.__qualname__ = fn.__qualname__
-        clone.__doc__ = fn.__doc__
-        return clone
-
-    def _classify_collected(self, entry: node.Node) -> Provenance:
-        recorded = self._pending.get(id(entry.callable))
-        if recorded is not None:
-            return recorded
-        for origin in entry.originating_functions or ():
-            declaration = self._originals.get(origin)
-            if declaration in self.releases:
-                return Provenance(Role.ACQUISITION, declaration, self.current_mount())
-            if declaration is not None:
-                return Provenance(Role.ORDINARY, declaration, self.current_mount())
-        raise AssertionError(f"Unattributed generated node {entry!r}")
-
-    def _instrument_mounts(
-        self, modifier: parameterized_subdag, declaration: Callable[..., Any]
-    ) -> None:
-        gather = modifier._gather_subdag_generators
-
-        def gather_with_capture(instance: parameterized_subdag) -> list[subdag]:
-            generators = gather()
-            for generator in generators:
-                mount = Mount(declaration, (generator.namespace,))
-                add_namespace = generator.add_namespace
-                generate = generator.generate_nodes
-
-                def add_namespace_with_capture(
-                    nodes: list[node.Node],
-                    namespace: str,
-                    inputs: dict[str, Any] | None = None,
-                    config: dict[str, Any] | None = None,
-                    *,
-                    _add_namespace=add_namespace,
-                ) -> list[node.Node]:
-                    generated = list(_add_namespace(nodes, namespace, inputs, config))
-                    if len(generated) != len(nodes):
-                        raise AssertionError("Subdag namespace operation changed node count")
-                    for before, after in zip(nodes, generated, strict=True):
-                        self.provenance[after.name] = self._classify_collected(before)
-                    return generated
-
-                def generate_with_capture(
-                    fn: Callable[..., Any],
-                    configuration: dict[str, Any],
-                    *,
-                    _generate=generate,
-                    _mount=mount,
-                ) -> list[node.Node]:
-                    self._mounts.append(_mount)
-                    try:
-                        return list(_generate(fn, configuration))
-                    finally:
-                        self._mounts.pop()
-
-                generator.add_namespace = add_namespace_with_capture
-                generator.generate_nodes = generate_with_capture
-            return generators
-
-        modifier._gather_subdag_generators = MethodType(gather_with_capture, modifier)
-
-    def resolve(
-        self, fn: Callable[..., Any], configuration: Mapping[str, Any]
-    ) -> tuple[node.Node, ...]:
-        return tuple(base.resolve_nodes(self.clone(fn), dict(configuration)))
-
-    def lower(self, resolved: tuple[node.Node, ...]) -> Mapping[str, NodeSpec]:
-        specs = {}
-        for entry in resolved:
-            inputs = {}
-            for name, (typ, dependency_type) in entry.input_types.items():
-                default = entry.default_parameter_values.get(name, MISSING)
-                if dependency_type is node.DependencyType.REQUIRED:
-                    default = MISSING
-                inputs[name] = InputSpec(typ, default)
-            provenance = self.provenance.get(entry.name)
-            release = None
-            if provenance is not None and provenance.role is Role.ACQUISITION:
-                release = self.releases[provenance.declaration]
-            origin = ""
-            if provenance is not None:
-                origin = f"{provenance.declaration.__module__}.{provenance.declaration.__qualname__}"
-            specs[entry.name] = NodeSpec(
-                name=entry.name,
-                fn=entry.callable,
-                output_type=entry.type,
-                inputs=inputs,
-                release=release,
-                origin=origin,
-                ownership_required=release is not None,
-            )
-        return specs
-
-
-def _make_fixture(module_factory, minimum: int):
+def _make_fixture(module_factory, minimums: tuple[int, int]):
     events: list[tuple[str, int]] = []
     resolver_calls: list[int] = []
 
@@ -362,18 +63,10 @@ def _make_fixture(module_factory, minimum: int):
     component = module_factory(
         """
 from hamilton.function_modifiers import extract_fields, resolve_from_config
-from sdax_hamilton import Acquisition, shutdown
 
 def acquire(token: int) -> Handle:
     events.append(("acquire", token))
     return Handle(token, events)
-
-@shutdown(of=acquire)
-def close(state: Acquisition[Handle]) -> None:
-    handle = state.value
-    assert handle.live
-    handle.live = False
-    events.append(("release", handle.number))
 
 @extract_fields({"number": int})
 def projected(acquire: Handle) -> dict[str, int]:
@@ -384,70 +77,58 @@ def projected(acquire: Handle) -> dict[str, int]:
 def checked(number: int) -> int:
     return number
 """,
-        Acquisition=Acquisition,
         Handle=Handle,
         events=events,
         make_check=make_check,
-        shutdown=shutdown,
     )
     mounted = module_factory(
         """
 from hamilton.function_modifiers import parameterized_subdag, value
+from sdax_hamilton import Acquisition, shutdown
+
+@shutdown(of=acquire)
+def close(state: Acquisition[Handle]) -> None:
+    handle = state.value
+    assert handle.live
+    handle.live = False
+    events.append(("release", handle.number))
 
 @parameterized_subdag(
     acquire,
     projected,
     checked,
-    low={"inputs": {"token": value(2)}},
-    high={"inputs": {"token": value(5)}},
+    low={
+        "inputs": {"token": value(2)},
+        "config": {"configured_minimum": low_minimum},
+    },
+    high={
+        "inputs": {"token": value(5)},
+        "config": {"configured_minimum": high_minimum},
+    },
 )
 def result(checked: int) -> int:
     return checked
 """,
+        Acquisition=Acquisition,
+        Handle=Handle,
         acquire=component.acquire,
         checked=component.checked,
+        events=events,
+        high_minimum=minimums[1],
+        low_minimum=minimums[0],
         projected=component.projected,
+        shutdown=shutdown,
     )
     configuration = {
         settings.ENABLE_POWER_USER_MODE: True,
-        "configured_minimum": minimum,
     }
     return component, mounted, configuration, events, resolver_calls
-
-
-def _graph_signature(nodes: tuple[node.Node, ...]) -> dict[str, tuple[Any, dict[str, Any]]]:
-    return {
-        entry.name: (
-            entry.type,
-            {name: typ for name, (typ, _) in entry.input_types.items()},
-        )
-        for entry in nodes
-    }
-
-
-def _owner_dependencies(
-    nodes: tuple[node.Node, ...], provenance: Mapping[str, Provenance], selected: str
-) -> frozenset[str]:
-    by_name = {entry.name: entry for entry in nodes}
-    owners = set()
-    stack = [selected]
-    visited = set()
-    while stack:
-        name = stack.pop()
-        if name in visited:
-            continue
-        visited.add(name)
-        fact = provenance.get(name)
-        if fact is not None and fact.role is Role.ACQUISITION:
-            owners.add(name)
-        stack.extend(dependency for dependency in by_name[name].input_types if dependency in by_name)
-    return frozenset(owners)
 
 
 def _decorator_objects(fn: Callable[..., Any]) -> tuple[object, ...]:
     return tuple(
         modifier
-        for stage in CaptureCompiler._LIFECYCLES
+        for stage in hamilton_compat._LIFECYCLES
         for modifier in getattr(fn, stage.get_lifecycle_name(), ())
     )
 
@@ -458,77 +139,251 @@ def _leaves(error: BaseException) -> list[BaseException]:
     return [error]
 
 
+def _compile_with_capture_observer(monkeypatch, mounted, configuration):
+    capture_refs = []
+    capture_class = hamilton_compat._ProvenanceCapture
+
+    class ObservedCapture(capture_class):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            capture_refs.append(weakref.ref(self))
+
+    monkeypatch.setattr(hamilton_compat, "_ProvenanceCapture", ObservedCapture)
+    specs = hamilton_compat.compile_modules(
+        (mounted,),
+        configuration,
+        _supported=(
+            *hamilton_compat._SUPPORTED,
+            extract_fields,
+            parameterized_subdag,
+            resolve_from_config,
+        ),
+    )
+    return specs, capture_refs
+
+
 @pytest.mark.asyncio
-async def test_compositional_provenance_capture_without_compiler_replay(module_factory):
+async def test_projection_borrows_owner_across_declaration_roots(module_factory):
+    events = []
+    module = module_factory(
+        """
+from hamilton.function_modifiers import extract_fields
+from sdax_hamilton import Acquisition, shutdown
+
+def acquire() -> Handle:
+    events.append(("acquire", 7))
+    return Handle(7, events)
+
+@shutdown(of=acquire)
+def close(state: Acquisition[Handle]) -> None:
+    state.value.live = False
+    events.append(("release", state.value.number))
+
+@extract_fields({"number": int})
+def projected(acquire: Handle) -> dict[str, int]:
+    assert acquire.live
+    return {"number": acquire.number}
+""",
+        Acquisition=Acquisition,
+        Handle=Handle,
+        events=events,
+        shutdown=shutdown,
+    )
+    specs = hamilton_compat.compile_modules(
+        (module,),
+        {},
+        _supported=(*hamilton_compat._SUPPORTED, extract_fields),
+    )
+
+    assert specs["number"].role is GeneratedRole.PROJECTION
+    assert specs["number"].borrow_from == frozenset({"acquire"})
+    assert await PreparedPlan(specs, ["number"]).execute() == {"number": 7}
+    assert events == [("acquire", 7), ("release", 7)]
+
+
+def test_nested_mount_hands_roles_to_each_parent_without_name_collisions(module_factory):
+    first_component, first_mounted, configuration, _, first_calls = _make_fixture(
+        module_factory, (1, 3)
+    )
+    second_component, second_mounted, _, _, second_calls = _make_fixture(
+        module_factory, (2, 4)
+    )
+    outer_source = """
+from hamilton.function_modifiers import parameterized_subdag
+from sdax_hamilton import Acquisition, shutdown
+
+@shutdown(of=acquire)
+def close(state: Acquisition[Handle]) -> None:
+    state.value.live = False
+
+@parameterized_subdag(result, NAMESPACE={})
+def outer(low: int) -> int:
+    return low
+"""
+    left = module_factory(
+        outer_source.replace("NAMESPACE", "left"),
+        Acquisition=Acquisition,
+        Handle=Handle,
+        acquire=first_component.acquire,
+        result=first_mounted.result,
+        shutdown=shutdown,
+    )
+    right = module_factory(
+        outer_source.replace("NAMESPACE", "right"),
+        Acquisition=Acquisition,
+        Handle=Handle,
+        acquire=second_component.acquire,
+        result=second_mounted.result,
+        shutdown=shutdown,
+    )
+    specs = hamilton_compat.compile_modules(
+        (left, right),
+        configuration,
+        _supported=(
+            *hamilton_compat._SUPPORTED,
+            extract_fields,
+            parameterized_subdag,
+            resolve_from_config,
+        ),
+    )
+
+    assert specs["left.low.number"].role is GeneratedRole.PROJECTION
+    assert specs["left.low.number"].borrow_from == frozenset({"left.low.acquire"})
+    assert specs["right.low.number"].role is GeneratedRole.PROJECTION
+    assert specs["right.low.number"].borrow_from == frozenset({"right.low.acquire"})
+    assert specs["left.low.number"].origin != specs["right.low.number"].origin
+    assert specs["left.low.acquire"].ownership_required
+    assert specs["right.low.acquire"].ownership_required
+    assert not specs["left.low.number"].ownership_required
+    assert not specs["right.low.number"].ownership_required
+    assert Counter(first_calls) == Counter({1: 1, 3: 1})
+    assert Counter(second_calls) == Counter({2: 1, 4: 1})
+
+
+def test_capture_is_discarded_after_construction_failure(module_factory, monkeypatch, caplog):
+    calls = []
+
+    class Sentinel(RuntimeError):
+        pass
+
+    def explode():
+        error = Sentinel("private sentinel")
+        calls.append(id(error))
+        raise error
+
+    module = module_factory(
+        """
+from hamilton.function_modifiers import resolve_from_config
+
+@resolve_from_config(decorate_with=explode)
+def result(value: int) -> int:
+    return value
+""",
+        explode=explode,
+    )
+    original_decorators = _decorator_objects(module.result)
+    capture_refs = []
+    capture_class = hamilton_compat._ProvenanceCapture
+
+    class ObservedCapture(capture_class):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            capture_refs.append(weakref.ref(self))
+
+    monkeypatch.setattr(hamilton_compat, "_ProvenanceCapture", ObservedCapture)
+
+    def construct() -> None:
+        with pytest.raises(RuntimeError) as result:
+            hamilton_compat.compile_modules(
+                (module,),
+                {settings.ENABLE_POWER_USER_MODE: True},
+                _supported=(*hamilton_compat._SUPPORTED, resolve_from_config),
+            )
+        assert type(result.value) is Sentinel
+        assert id(result.value) == calls[0]
+        assert result.value.__context__ is None
+        assert result.value.__cause__ is None
+
+    construct()
+    gc.collect()
+    assert len(calls) == 1
+    assert not [
+        record
+        for record in caplog.records
+        if record.name == "hamilton.function_modifiers.base"
+    ]
+    assert _decorator_objects(module.result) == original_decorators
+    assert len(capture_refs) == 1
+    assert capture_refs[0]() is None
+
+
+@pytest.mark.asyncio
+async def test_production_capture_preserves_mounted_roles_once(
+    module_factory, graph_signature, monkeypatch
+):
     stable = Driver(module_factory("def stable(value: int) -> int:\n    return value + 1")).prepare(
         ["stable"]
     )
-    component, mounted, configuration, events, resolver_calls = _make_fixture(module_factory, 1)
+    component, mounted, configuration, events, resolver_calls = _make_fixture(
+        module_factory, (1, 3)
+    )
     originals = {
         fn: _decorator_objects(fn)
         for fn in (component.acquire, component.projected, component.checked, mounted.result)
     }
     resolve_nodes = base.resolve_nodes
 
-    compiler = CaptureCompiler({component.acquire: component.close})
-    captured_nodes = compiler.resolve(mounted.result, configuration)
+    with pytest.raises(ValueError, match="unsupported Hamilton decorator parameterized_subdag"):
+        Driver(mounted, config=configuration)
+
+    specs, capture_refs = _compile_with_capture_observer(monkeypatch, mounted, configuration)
+    assert Counter(resolver_calls) == Counter({1: 1, 3: 1})
 
     stock_component, stock_mounted, stock_config, _, stock_resolver_calls = _make_fixture(
-        module_factory, 1
+        module_factory, (1, 3)
     )
-    stock_nodes = tuple(base.resolve_nodes(stock_mounted.result, stock_config))
-    assert _graph_signature(captured_nodes) == _graph_signature(stock_nodes)
-    assert resolver_calls == [1, 1]
-    assert stock_resolver_calls == [1, 1]
-
-    counts = Counter(resolution.mount.path for resolution in compiler.resolutions)
-    assert counts == Counter({("low",): 1, ("high",): 1})
-    assert all(resolution.resolved_type is check_output_custom for resolution in compiler.resolutions)
-    assert all(resolution.mount.declaration is mounted.result for resolution in compiler.resolutions)
-    original_resolver = originals[component.checked][0]
-    assert all(
-        resolution.resolver is not original_resolver
-        and type(resolution.resolver) is type(original_resolver)
-        for resolution in compiler.resolutions
-    )
+    stock_nodes = {entry.name: entry for entry in base.resolve_nodes(stock_mounted.result, stock_config)}
+    assert graph_signature(specs) == graph_signature(stock_nodes)
+    assert Counter(stock_resolver_calls) == Counter({1: 1, 3: 1})
 
     expected_roles = {
-        "acquire": Role.ACQUISITION,
-        "projected": Role.PROJECTION_SOURCE,
-        "number": Role.PROJECTION,
-        "checked_raw": Role.VALIDATION_RAW,
-        "checked_minimum": Role.VALIDATOR,
-        "checked": Role.VALIDATION_GATE,
+        "acquire": GeneratedRole.VALUE,
+        "projected": GeneratedRole.VALUE,
+        "number": GeneratedRole.PROJECTION,
+        "checked_raw": GeneratedRole.VALIDATION_RAW,
+        "checked_minimum": GeneratedRole.VALIDATION_EVIDENCE,
+        "checked": GeneratedRole.VALIDATION_GATE,
     }
     for mount in ("low", "high"):
         assert {
-            name: compiler.provenance[f"{mount}.{name}"].role for name in expected_roles
+            name: specs[f"{mount}.{name}"].role for name in expected_roles
         } == expected_roles
-    assert _owner_dependencies(captured_nodes, compiler.provenance, "low.checked") == frozenset(
-        {"low.acquire"}
-    )
-    assert _owner_dependencies(captured_nodes, compiler.provenance, "high.checked") == frozenset(
-        {"high.acquire"}
-    )
+        assert specs[f"{mount}.acquire"].ownership_required
+        assert specs[f"{mount}.acquire"].release is not None
+        for name in ("number", "checked_raw", "checked"):
+            assert specs[f"{mount}.{name}"].borrow_from == frozenset(
+                {f"{mount}.acquire"}
+            )
+        assert not specs[f"{mount}.checked_minimum"].borrow_from
 
-    checked_roles = {
+    stock_checked = {
         name: entry.originating_functions
-        for name, entry in {item.name: item for item in captured_nodes}.items()
+        for name, entry in stock_nodes.items()
         if name in {"low.checked_raw", "low.checked_minimum", "low.checked"}
     }
-    assert len({origins for origins in checked_roles.values()}) == 1
+    assert len(set(stock_checked.values())) == 1
     assert inspect.signature(component.checked).parameters["number"].annotation is int
     assert get_type_hints(component.acquire)["return"] is Handle
 
-    plan = PreparedPlan(compiler.lower(captured_nodes), ["low", "high"])
+    plan = PreparedPlan(specs, ["low", "high"])
     assert await plan.execute() == {"low": 2, "high": 5}
-    assert resolver_calls == [1, 1]
+    assert Counter(resolver_calls) == Counter({1: 1, 3: 1})
     assert Counter(events) == Counter(
         {("acquire", 2): 1, ("release", 2): 1, ("acquire", 5): 1, ("release", 5): 1}
     )
 
     oracle_component, oracle_mounted, oracle_config, _, oracle_resolver_calls = _make_fixture(
-        module_factory, 1
+        module_factory, (1, 3)
     )
     oracle = (
         hamilton_driver.Builder()
@@ -537,7 +392,7 @@ async def test_compositional_provenance_capture_without_compiler_replay(module_f
         .build()
     )
     assert oracle.execute(["low", "high"]) == {"low": 2, "high": 5}
-    assert oracle_resolver_calls == [1, 1]
+    assert Counter(oracle_resolver_calls) == Counter({1: 1, 3: 1})
     assert oracle_component.acquire is not component.acquire
 
     assert base.resolve_nodes is resolve_nodes
@@ -546,22 +401,24 @@ async def test_compositional_provenance_capture_without_compiler_replay(module_f
     assert "_gather_subdag_generators" not in originals[mounted.result][0].__dict__
     assert await stable.execute(inputs={"value": 6}) == {"stable": 7}
 
+    gc.collect()
+    assert len(capture_refs) == 1
+    assert capture_refs[0]() is None
+
 
 @pytest.mark.asyncio
-async def test_validation_failure_retains_each_actual_mount_owner_once(module_factory):
-    component, mounted, configuration, events, resolver_calls = _make_fixture(module_factory, 4)
-    compiler = CaptureCompiler({component.acquire: component.close})
-    captured_nodes = compiler.resolve(mounted.result, configuration)
-    plan = PreparedPlan(compiler.lower(captured_nodes), ["low", "high"])
+async def test_validation_failure_releases_each_actual_mount_once(module_factory, monkeypatch):
+    _, mounted, configuration, events, resolver_calls = _make_fixture(module_factory, (4, 6))
+    specs, capture_refs = _compile_with_capture_observer(monkeypatch, mounted, configuration)
+    plan = PreparedPlan(specs, ["low", "high"])
 
     with pytest.raises(BaseExceptionGroup) as result:
         await plan.execute()
 
     assert any(isinstance(error, data_quality.DataValidationError) for error in _leaves(result.value))
-    assert resolver_calls == [4, 4]
-    assert Counter(resolution.mount.path for resolution in compiler.resolutions) == Counter(
-        {("low",): 1, ("high",): 1}
-    )
+    assert Counter(resolver_calls) == Counter({4: 1, 6: 1})
     assert Counter(events) == Counter(
         {("acquire", 2): 1, ("release", 2): 1, ("acquire", 5): 1, ("release", 5): 1}
     )
+    gc.collect()
+    assert capture_refs[0]() is None

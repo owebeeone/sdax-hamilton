@@ -2,11 +2,22 @@
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from enum import Enum
 from types import MappingProxyType
 from typing import Any
 
 from ._types import MISSING as MISSING
 from .declarations import Policy
+
+
+class GeneratedRole(Enum):
+    """Generated value roles with concrete selection or ownership consumers."""
+
+    VALUE = "value"
+    PROJECTION = "projection"
+    VALIDATION_RAW = "validation-raw"
+    VALIDATION_EVIDENCE = "validation-evidence"
+    VALIDATION_GATE = "validation-gate"
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,9 +38,14 @@ class NodeSpec:
     release_policy: Policy = Policy()
     origin: str = ""
     ownership_required: bool = False
+    role: GeneratedRole = GeneratedRole.VALUE
+    borrow_from: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "inputs", MappingProxyType(dict(self.inputs)))
+        if any(not isinstance(name, str) or not name for name in self.borrow_from):
+            raise ValueError("borrow_from requires nonempty node names")
+        object.__setattr__(self, "borrow_from", frozenset(self.borrow_from))
         object.__setattr__(
             self,
             "tags",
