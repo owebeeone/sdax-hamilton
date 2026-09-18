@@ -375,11 +375,11 @@ def compile_modules(modules, configuration, *, _supported=_SUPPORTED):
                 if fact.actual_call and fact.declaration not in all_declarations
             }
             if undiscovered:
-                names = sorted(
+                undiscovered_names = sorted(
                     f"{declaration.__module__}.{declaration.__qualname__}"
                     for declaration in undiscovered
                 )
-                raise ValueError(f"generated declarations were not discovered: {names}")
+                raise ValueError(f"generated declarations were not discovered: {undiscovered_names}")
             names = {entry.name for entry in expanded}
             if len(names) != len(expanded):
                 raise ValueError(f"{fn.__name__}: duplicate generated Hamilton node")

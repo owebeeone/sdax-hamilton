@@ -1,8 +1,8 @@
 """Construction-local capture for Hamilton modifier provenance.
 
-This module is the single cohesive exception to the project's usual 500-line
-source-file target. It owns the coupled copy, interception, and identity-handoff
-logic; splitting those phases would create a second provenance representation.
+The cohesion review keeps copying, interception and identity handoff together
+because they share construction-only identity tables. Revisit this boundary when
+those responsibilities can separate without duplicating state.
 """
 
 from collections.abc import Callable, Collection, Mapping
@@ -428,14 +428,14 @@ class _ProvenanceCapture:
     def _instrument_resolver(
         self, modifier: resolve, declaration: Callable[..., Any]
     ) -> None:
-        resolve = modifier.resolve
+        resolve_modifier = modifier.resolve
 
         def resolve_with_capture(
             instance: resolve,
             configuration: dict[str, Any],
             fn: Callable[..., Any],
         ) -> base.NodeTransformLifecycle:
-            resolved = copy(resolve(configuration, fn))
+            resolved = copy(resolve_modifier(configuration, fn))
             if type(resolved) not in self.supported:
                 raise ValueError(
                     f"{declaration.__name__}: resolver returned unsupported Hamilton decorator "
@@ -676,7 +676,7 @@ class _ProvenanceCapture:
         self._mounts.clear()
 
 
-def _copy_function(fn: Callable[..., Any]) -> Callable[..., Any]:
+def _copy_function(fn: Callable[..., Any]) -> FunctionType:
     """Copy one function and its bounded modifier containers."""
     clone = FunctionType(
         fn.__code__, fn.__globals__, fn.__name__, fn.__defaults__, fn.__closure__
