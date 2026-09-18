@@ -27,7 +27,6 @@ from hamilton.function_modifiers import (
     tag,
     tag_outputs,
 )
-from hamilton.function_modifiers.dependencies import LiteralDependency, UpstreamDependency
 from hamilton.function_modifiers.metadata import RayRemote, SchemaOutput, cache
 from hamilton.graph_utils import find_functions
 from hamilton.lifecycle.base import LifecycleAdapterSet
@@ -59,15 +58,6 @@ _SUPPORTED = (
     SchemaOutput,
     cache,
     RayRemote,
-)
-_PARAMETERIZE_INTERNAL_INPUTS = frozenset(
-    (
-        "upstream_dependencies",
-        "literal_dependencies",
-        "grouped_list_dependencies",
-        "grouped_dict_dependencies",
-        "former_inputs",
-    )
 )
 
 
@@ -108,47 +98,6 @@ def _excluded(fn):
     return any(type(modifier) is _EXCLUDED for modifier in _decorators(fn))
 
 
-
-
-
-def _validate_bindings(fn, modifier, hints, parameters):
-    for output, bindings in modifier.parameterization.items():
-        requirements: dict[str, list[tuple[Any, bool]]] = {}
-        for name, binding in bindings.items():
-            if name not in parameters:
-                raise ValueError(f"{fn.__name__}: unknown bound parameter {name}")
-            if type(binding) is LiteralDependency:
-                if not accepts(binding.value, hints[name]):
-                    raise TypeError(f"{fn.__name__}.{name}: bound literal has wrong type")
-            elif type(binding) is UpstreamDependency:
-                if not isinstance(binding.source, str) or not binding.source:
-                    raise ValueError(f"{fn.__name__}.{name}: source must name a node")
-                if parameters[name].default is not inspect.Parameter.empty:
-                    raise ValueError(f"{fn.__name__}.{name}: optional source rebinding unsupported")
-                requirements.setdefault(binding.source, []).append((hints[name], False))
-            else:
-                raise ValueError(f"{fn.__name__}.{name}: grouped/config binding unsupported")
-        for name in parameters:
-            if name not in bindings:
-                optional = parameters[name].default is not inspect.Parameter.empty
-                requirements.setdefault(name, []).append((hints[name], optional))
-        if _PARAMETERIZE_INTERNAL_INPUTS.intersection(requirements):
-            raise ValueError(
-                f"{fn.__name__}/{output}: binding collides with Hamilton wrapper parameter"
-            )
-        # Hamilton merges repeated sources into one input. Do not lose any of
-        # the original parameter contracts at that merge boundary.
-        for contracts in requirements.values():
-            if any(typ != contracts[0][0] for typ, _ in contracts):
-                raise TypeError(
-                    f"{fn.__name__}/{output}: merged source has different parameter types"
-                )
-            if len(contracts) > 1 and any(optional for _, optional in contracts):
-                raise ValueError(
-                    f"{fn.__name__}/{output}: merged source has optional parameter contract"
-                )
-
-
 def _validate_declaration(fn, supported=_SUPPORTED):
     if _excluded(fn):
         return
@@ -174,8 +123,6 @@ def _validate_declaration(fn, supported=_SUPPORTED):
             raise ValueError(
                 f"{fn.__name__}: unsupported Hamilton decorator {type(modifier).__name__}"
             )
-        if isinstance(modifier, parameterize):
-            _validate_bindings(fn, modifier, hints, parameters)
 
 
 def _declaration_closure(declarations, supported):

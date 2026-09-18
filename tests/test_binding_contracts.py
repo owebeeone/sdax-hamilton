@@ -9,12 +9,14 @@ from hamilton.function_modifiers import (
     group,
     inject,
     parameterize,
+    parameterized_subdag,
     source,
     value,
 )
 
 from sdax_hamilton._hamilton_bindings import capture_bindings, snapshot_binding_containers
 from sdax_hamilton._model import MISSING, InputSpec, NodeSpec
+from sdax_hamilton.hamilton_compat import _SUPPORTED, compile_modules
 from sdax_hamilton.plan import PreparedPlan
 
 
@@ -114,6 +116,39 @@ def test_binding_capture_uses_a_literal_bound_source_as_the_rebound_source_defau
 
     assert binding.requirements == (int,)
     assert binding.default == 9
+
+
+def test_binding_capture_reaches_generated_subdag_nodes_with_original_contracts(module_factory):
+    module = module_factory(
+        """
+from hamilton.function_modifiers import inject, parameterized_subdag, source
+
+@inject(left=source("shared"))
+def component(left: int, shared: int | str = 3) -> int:
+    return left
+
+@parameterized_subdag(component, low={})
+def result(component: int) -> int:
+    return component
+"""
+    )
+
+    nodes = compile_modules(
+        (module,),
+        {},
+        _supported=(*_SUPPORTED, parameterized_subdag),
+    )
+
+    assert nodes["component"].inputs["shared"] == InputSpec(
+        int | str,
+        3,
+        requirements=(int, int | str),
+    )
+    assert nodes["low.component"].inputs["shared"] == InputSpec(
+        int | str,
+        3,
+        requirements=(int, int | str),
+    )
 
 
 @pytest.mark.asyncio
