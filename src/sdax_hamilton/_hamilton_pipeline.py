@@ -7,18 +7,17 @@ frontend; phase C must call it after separately qualifying the supported forms.
 
 import inspect
 from copy import copy
-from importlib import metadata
 from types import FunctionType, MethodType
-from typing import Any, Callable, get_type_hints
+from typing import Any, Callable, Mapping, get_type_hints
 
-import hamilton
 from hamilton.function_modifiers.configuration import ConfigResolver
 from hamilton.function_modifiers.dependencies import LiteralDependency, UpstreamDependency
 from hamilton.function_modifiers.macros import Applicable, does, pipe, pipe_input, pipe_output
 
+from ._hamilton_bindings import _merged_default
+from ._model import MISSING, InputSpec
 from ._types import accepts, compatible, validate_type
 
-_SUPPORTED_HAMILTON_VERSION = "1.90.0"
 _CORRECTION_MARKER = "__sdax_hamilton_async_output_pipeline_corrected__"
 _PIPE_MODIFIERS = (pipe_input, pipe, pipe_output)
 _SELECTOR_FACTORIES = (
@@ -31,24 +30,6 @@ _SELECTOR_FACTORIES = (
         ConfigResolver.when_not_in,
     ),
 )
-
-
-def _check_hamilton_version() -> None:
-    """Fail closed outside the pinned upstream implementation."""
-    try:
-        installed = metadata.version("apache-hamilton")
-    except metadata.PackageNotFoundError as exc:
-        raise RuntimeError("async output-pipeline correction requires apache-hamilton==1.90.0") from exc
-    source_version = getattr(hamilton, "__version__", ())
-    imported = (
-        source_version if isinstance(source_version, str) else ".".join(map(str, source_version))
-    )
-    if installed != _SUPPORTED_HAMILTON_VERSION or imported != _SUPPORTED_HAMILTON_VERSION:
-        raise RuntimeError(
-            "Unsupported Hamilton version for async output-pipeline correction: "
-            f"distribution={installed}, imported={imported}; "
-            "requires apache-hamilton==1.90.0"
-        )
 
 
 def _synchronous_expansion_context(fn: Callable[..., Any]) -> Callable[..., Any]:
@@ -85,7 +66,6 @@ def correct_copied_async_output_pipelines(fn: Callable[..., Any]) -> None:
     decorator-admission checks.
     """
 
-    _check_hamilton_version()
     if not inspect.iscoroutinefunction(fn):
         return
     for modifier in getattr(fn, "transform", ()):
@@ -96,7 +76,6 @@ def correct_copied_async_output_pipeline(
     fn: Callable[..., Any], modifier: Any
 ) -> None:
     """Correct one exact copied output pipeline returned by a delayed resolver."""
-    _check_hamilton_version()
     if (
         not inspect.iscoroutinefunction(fn)
         or type(modifier) is not pipe_output
@@ -301,6 +280,45 @@ def _validate_bound_applicable(applicable: Applicable, literal_inputs: dict[str,
     for name, value in literal_inputs.items():
         if not accepts(value, hints[name]):
             raise TypeError(f"pipeline step.{name}: bound literal has wrong type")
+
+
+def selected_step_input_contracts(
+    applicable: Applicable, upstream_inputs: Mapping[str, str]
+) -> Mapping[str, InputSpec]:
+    """Keep a selected plain helper's contracts after Hamilton merges input names.
+
+    Hamilton's ``Node.reassign_inputs`` retains only one declared type/default
+    when several helper parameters bind to the same upstream source. The caller
+    invokes this only after Hamilton has selected and bound an exact ``Applicable``.
+    """
+
+    signature, hints = _function_contract(applicable.fn, "pipeline step")
+    if hints is None:
+        return {}
+    requirements: dict[str, list[Any]] = {}
+    defaults: dict[str, list[object]] = {}
+    required = set()
+    for parameter in signature.parameters.values():
+        source = upstream_inputs.get(parameter.name)
+        if source is None:
+            continue
+        requirements.setdefault(source, []).append(hints[parameter.name])
+        if parameter.default is inspect.Parameter.empty:
+            required.add(source)
+        else:
+            defaults.setdefault(source, []).append(parameter.default)
+    return {
+        source: InputSpec(
+            requirements[source][-1],
+            (
+                MISSING
+                if source in required
+                else _merged_default(applicable.fn, source, defaults.get(source, []))
+            ),
+            requirements=tuple(requirements[source]),
+        )
+        for source in requirements
+    }
 
 
 def _install_selected_step_contract(applicable: Applicable) -> None:
