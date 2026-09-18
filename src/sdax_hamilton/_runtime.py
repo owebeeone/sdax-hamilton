@@ -36,6 +36,11 @@ def call_callback(spec: NodeSpec):
         if spec.release is not None:
             ctx.acquisitions[spec.name] = Acquisition(_typ=spec.output_type)
         kwargs = {name: ctx.values[name] for name in spec.inputs if name in ctx.values}
+        for name, binding in spec.inputs.items():
+            if name in kwargs and not all(
+                accepts(kwargs[name], requirement) for requirement in binding.effective_requirements
+            ):
+                raise TypeError(f"Invalid input for {spec.name}.{name}")
         try:
             value = await resolve(spec.fn(**kwargs))
         except asyncio.CancelledError as exc:

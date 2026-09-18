@@ -86,17 +86,25 @@ def select(
         dependencies = []
         for dependency, binding in spec.inputs.items():
             validate_type(binding.typ)
-            if binding.default is not MISSING and not accepts(binding.default, binding.typ):
+            requirements = binding.effective_requirements
+            for requirement in requirements:
+                validate_type(requirement)
+            if binding.default is not MISSING and not all(
+                accepts(binding.default, requirement) for requirement in requirements
+            ):
                 raise TypeError(f"Invalid default for {name}.{dependency}")
             if dependency in nodes:
-                if not compatible(nodes[dependency].output_type, binding.typ):
+                if not all(
+                    compatible(nodes[dependency].output_type, requirement)
+                    for requirement in requirements
+                ):
                     raise TypeError(f"Incompatible edge: {dependency} -> {name}")
                 dependencies.append((dependency, False))
             elif dependency in config:
-                if not accepts(config[dependency], binding.typ):
+                if not all(accepts(config[dependency], requirement) for requirement in requirements):
                     raise TypeError(f"Invalid config input {dependency!r} for {name}")
             else:
-                contracts.setdefault(dependency, []).append(binding.typ)
+                contracts.setdefault(dependency, []).extend(requirements)
                 if binding.default is MISSING or dependency in optional:
                     required.add(dependency)
         stack.extend(reversed(dependencies))
@@ -104,6 +112,13 @@ def select(
         raise ValueError(f"Unused override declaration: {sorted(overrides - selected)}")
     if optional - required:
         raise ValueError(f"Unused optional input declaration: {sorted(optional - required)}")
+    for name in selected - config.keys() - overrides:
+        for dependency, binding in nodes[name].inputs.items():
+            if dependency in nodes and dependency in config and not all(
+                accepts(config[dependency], requirement)
+                for requirement in binding.effective_requirements
+            ):
+                raise TypeError(f"Invalid config replacement: {dependency}")
     return Selection(
         nodes,
         outputs,

@@ -1,5 +1,6 @@
 """Regression coverage for Hamilton 1.90.0 generated ``load_from`` annotations."""
 
+from copy import copy
 from dataclasses import dataclass
 from typing import Any
 
@@ -8,7 +9,10 @@ from hamilton.function_modifiers import base, dataloader
 from hamilton.function_modifiers.adapters import LoadFromDecorator
 from hamilton.io.data_adapters import DataLoader
 
-from sdax_hamilton._hamilton_loader import correct_load_from_annotations
+from sdax_hamilton._hamilton_loader import (
+    correct_load_from_annotations,
+    install_load_from_correction,
+)
 from sdax_hamilton._types import accepts
 
 
@@ -134,3 +138,26 @@ def test_admitted_unexpected_generated_shape_fails_closed():
 
     with pytest.raises(RuntimeError, match="unexpected raw loader annotation"):
         correct_load_from_annotations((raw, projection), load_from_admitted=True)
+
+
+def test_copied_load_from_wrapper_corrects_only_its_generated_pair_and_snapshots_bindings():
+    calls: list[str] = []
+    changed_calls: list[str] = []
+    loader_classes = [_MemoryIntegerLoader]
+    application_modifier = LoadFromDecorator(loader_classes, calls=calls)
+    copied_modifier = install_load_from_correction(copy(application_modifier))
+
+    loader_classes.clear()
+    application_modifier.kwargs["calls"] = changed_calls
+    raw, projection = copied_modifier.get_loader_nodes("item", int, "consumer")
+
+    assert application_modifier.loader_classes == []
+    assert application_modifier.kwargs["calls"] is changed_calls
+    assert copied_modifier.loader_classes == (_MemoryIntegerLoader,)
+    assert copied_modifier.kwargs["calls"] is calls
+    assert raw.type == tuple[int, dict[str, Any]]
+    assert projection.input_types[raw.name][0] == raw.type
+    assert raw.callable() == (7, {"source": "memory"})
+    assert calls == ["load"]
+    assert changed_calls == []
+    assert install_load_from_correction(copied_modifier) is copied_modifier
