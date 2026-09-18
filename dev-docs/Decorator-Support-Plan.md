@@ -124,6 +124,7 @@ flowchart TD
   P4["P4: Generated ownership selection and policy"]
   U1["U1: Async pipeline correction"]
   U2["U2: Loader annotation correction"]
+  U3["U3: Model required-config dispatch correction"]
   B["B: Bindings and extraction"]
   C["C: Does pipelines and mutate"]
   D0["D0: Recursive discovery and mount provenance"]
@@ -157,6 +158,8 @@ flowchart TD
   P3 --> P4
   P1 --> U1
   P1 --> U2
+  P1 --> U3
+  U3 --> D3
   P2 --> B
   P3 --> B
   P2 --> C
@@ -259,7 +262,7 @@ Files follow cohesion, not the number of lanes. X does not shape a public API no
 | D0 | Shared recursive discovery/mount provenance capability. Recursively admit nested functions and shutdowns; identity is declaration plus mount path. Prove two mounts have independent ownership and no hidden expansion bypass. This narrow capability unlocks dataframe plugins before all subdag options. |
 | D1 | Complete public subdag/parameterized_subdag options over D0: namespacing, bindings/config, selected alternatives and owned replacement protection. A owns direct config predicates. |
 | D2 | Delayed resolve/resolve_from_config. Resolve once, preserve power-user opt-in and config/default requirements, recursively check the returned modifier. Its family remains disabled until separately qualified. No recursive invocation merely to inspect a result twice. |
-| D3 | Configured model/dynamic_transform construction, bound compute contracts and deprecations. Define shared instance state/reentrancy; trusted constructors do not acquire untracked external resources. No universal object snapshotter. |
+| D3 | Configured model/dynamic_transform construction, bound compute contracts and deprecations. U3 corrects pinned upstream `require_config()`/`required_config()` dispatch on the copied modifier by delegating to its existing method; prove required config reaches its constructor exactly once. Define shared instance state/reentrancy; trusted constructors do not acquire untracked external resources. No universal object snapshotter. |
 | E | Raw/validator/final validation graph roles, warn/fail/custom behavior, targeting and diagnostics policy below. Mandatory fail-validation survives `check_outputs=False`. No validation failure retries upstream acquisition. |
 | F | Load/save factories, dataloader/datasaver and Hamilton registry protocol. Qualify unaffected savers/adapters independently of U2; QB joins U2 for affected loaders. Snapshot selected adapter identity; no second registration system. In-memory/temp-file tests need no credentials/network. |
 
