@@ -121,6 +121,12 @@ never described as full backend parity. X is optional and does not block Z.
    not describe that behavior. V must distinguish schema validation from runtime
    representation and reject unsafe downstream model-instance assumptions; neither
    globally disable checks nor silently coerce values to advertise compatibility.
+   The qualified producer and shutdown type is therefore
+   `Model | dict[str, Any]`; a nominal `Acquisition[Model]` shutdown is rejected
+   because the raw acquisition may be a dictionary. Pandera validation advertises
+   the concrete `pandas.DataFrame` runtime representation. Its qualified shutdown
+   uses that concrete class; generic `DataFrame[Schema]` consumer and shutdown
+   annotations remain unsupported until schema-aware edges are separately proven.
 8. **Snapshot bounded metadata, preserve application state.** Models, validators,
    adapters and captured literals can hold mutable state. Own immutable binding
    metadata; explicitly document per-driver/per-invocation state and reentrancy.
