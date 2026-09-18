@@ -47,6 +47,7 @@ from ._hamilton_validation import (
     correct_validation_representation,
 )
 from ._model import GeneratedRole, InputSpec
+from ._optional_profiles import identify_optional_modifier, validate_optional_profile
 
 _LIFECYCLES = (
     base.NodeResolver,
@@ -619,7 +620,11 @@ class _ProvenanceCapture:
     def _instrument_modifier(
         self, snapshot: base.NodeTransformLifecycle, declaration: Callable[..., Any]
     ) -> base.NodeTransformLifecycle:
-        if type(snapshot) is parameterized_subdag:
+        optional_profile = identify_optional_modifier(snapshot)
+        if optional_profile in ("pydantic", "pandera"):
+            validate_optional_profile(optional_profile)
+            self._instrument_validation(snapshot, declaration, profile=optional_profile)
+        elif type(snapshot) is parameterized_subdag:
             self._instrument_parameterized_subdag(snapshot, declaration)
         elif type(snapshot) is extract_fields:
             self._instrument_extract_fields(snapshot, declaration)

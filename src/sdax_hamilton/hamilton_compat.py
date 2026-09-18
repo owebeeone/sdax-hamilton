@@ -38,7 +38,9 @@ from ._hamilton_provenance import (  # noqa: F401 -- retained private compatibil
     _copy_function,
     _ProvenanceCapture,
 )
+from ._hamilton_validation import normalize_validation_annotation
 from ._model import MISSING, InputSpec, NodeSpec
+from ._optional_profiles import identify_optional_modifier, validate_optional_profile
 from ._types import accepts, compatible, validate_type
 from .declarations import Acquisition, Policy
 
@@ -156,6 +158,18 @@ def _validate_declaration(fn, supported=_SUPPORTED):
         raise TypeError(f"{fn.__name__}: generator and async-generator functions unsupported")
     hints = get_type_hints(fn, include_extras=True)
     parameters = inspect.signature(fn).parameters
+    modifiers = _decorators(fn)
+    validation_profiles = [
+        profile
+        for modifier in modifiers
+        if type(modifier) in supported
+        and (profile := identify_optional_modifier(modifier)) in ("pydantic", "pandera")
+    ]
+    if len(validation_profiles) > 1:
+        raise ValueError(f"{fn.__name__}: multiple optional validation profiles unsupported")
+    validation_profile = validation_profiles[0] if validation_profiles else None
+    if validation_profile is not None:
+        validate_optional_profile(validation_profile)
     for name, parameter in parameters.items():
         if parameter.kind not in (parameter.POSITIONAL_OR_KEYWORD, parameter.KEYWORD_ONLY):
             raise TypeError(f"{fn.__name__}: variadic and positional-only parameters unsupported")
@@ -168,8 +182,8 @@ def _validate_declaration(fn, supported=_SUPPORTED):
             raise TypeError(f"{fn.__name__}.{name}: invalid default")
     if "return" not in hints:
         raise TypeError(f"{fn.__name__}: missing return type")
-    validate_type(hints["return"])
-    for modifier in _decorators(fn):
+    validate_type(normalize_validation_annotation(hints["return"], validation_profile))
+    for modifier in modifiers:
         if type(modifier) not in supported:
             raise ValueError(
                 f"{fn.__name__}: unsupported Hamilton decorator {type(modifier).__name__}"
